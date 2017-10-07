@@ -50,7 +50,7 @@ fun3 = getEndo (endo1 <> endo4)
 
 arrow1 = Arrow (\l -> [[l, l]])
 arrow2 = Arrow (\l -> [[l], [l]])
-arrow3 = Arrow mempty
+arrow3 = mempty
 
 funArr1 = getArrow (arrow1 `mappend` arrow2)
 funArr2 = getArrow (arrow1 `mappend` arrow3)

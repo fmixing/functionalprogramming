@@ -503,7 +503,7 @@ instance Semigroup b => Semigroup (Arrow a b) where
     (<>) x y = Arrow (\l -> getArrow x l <> getArrow y l)
 
 instance Monoid b => Monoid (Arrow a b) where
-    mempty = Arrow mempty
+    mempty = Arrow (\_ -> mempty)
     mappend x y = Arrow (\l -> getArrow x l `mappend` getArrow y l)
 
 instance Ord a => Semigroup (Tree a) where
