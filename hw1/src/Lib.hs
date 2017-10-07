@@ -63,17 +63,17 @@ module Lib
 ) where
 
 
-import           Data.Char       (isDigit, isSpace)
-import           Text.Read       (readMaybe)
-import           Data.Either     (lefts, rights)
-import           Data.Foldable   (toList)
-import           Data.List       (sort)
-import           Data.Maybe      (fromJust, fromMaybe, isNothing)
-import           Data.Monoid     as Monoid (mempty)
-import           Data.Semigroup  as Semigroup hiding (Endo, mempty)
+import           Control.Applicative ((<$>))
+import           Data.Char           (isDigit, isSpace)
+import           Data.Either         (lefts, rights)
+import           Data.List           (sort)
+import           Data.Maybe          (fromJust, fromMaybe, isNothing)
+import           Data.Monoid         as Monoid (mempty)
+import           Data.Semigroup      as Semigroup hiding (Endo, mempty)
 import           Numeric.Natural
-import           Prelude         hiding (mempty)
-import           System.Random   (newStdGen, randomRs)
+import           Prelude             hiding (mempty)
+import           System.Random       (newStdGen, randomRs)
+import           Text.Read           (readMaybe)
 
 randomIntList :: Int -> Int -> Int -> IO [Int]
 randomIntList n from to = take n . randomRs (from, to) <$> newStdGen
@@ -84,7 +84,7 @@ order3 :: Ord a => (a, a, a) -> (a, a, a)
 order3 (x, y, z) =
     let [x', y', z'] = sort [x, y, z] in (x', y', z')
 
-highestBit :: Natural -> Maybe (Natural)
+highestBit :: Natural -> Maybe Natural
 highestBit x
     | x == 0 = Nothing
     | x == 1 = Just 1
@@ -115,7 +115,7 @@ removeAt _ [] = Just []
 removeAt num (x : xs)
     | num < 0       = Nothing
     | num == 0      = Just xs
-    | otherwise     = Just ([x] ++ fromJust (removeAt (num - 1) xs))
+    | otherwise     = Just (x : fromJust (removeAt (num - 1) xs))
 
 removeAtHard :: Int -> [a] -> (Maybe a, [a])
 removeAtHard _ []           = (Nothing, [])
@@ -139,7 +139,7 @@ collectEvery n list
                            (x : oldlist, removed)
 
 stringSum :: String -> Maybe Integer
-stringSum str = fmap sum $ sequence $ map (\x -> readMaybe x :: Maybe Integer) $ words str
+stringSum str = sum <$> mapM (\x -> readMaybe x :: Maybe Integer) (words str)
 
 stringSumHard :: String -> Maybe Int
 stringSumHard = stringSumHard' []
@@ -378,7 +378,7 @@ natGcd Z _ = Nothing
 natGcd _ Z = Nothing
 natGcd x y = Just $ natGcd' x y
     where
-        natGcd' x' Z = x'
+        natGcd' x' Z  = x'
         natGcd' x' y' = natGcd' y' (fromJust (natMod x' y'))
 
 
@@ -455,7 +455,7 @@ eitherConcat list = if null leftElems || null rightElems
         concatLeft []       = error "Something went really wrong"
         concatLeft [x]      = x
         concatLeft (x : xs) = x `mappend` concatLeft xs
-        concatRight []       = error "Something went really wrong"        
+        concatRight []       = error "Something went really wrong"
         concatRight [x]      = x
         concatRight (x : xs) = x `mappend` concatRight xs
 
@@ -488,7 +488,7 @@ instance Monoid Name where
         | otherwise = Name (x ++ "." ++ y)
 
 
-newtype Endo a = Endo { getEndo :: a -> a } 
+newtype Endo a = Endo { getEndo :: a -> a }
 
 instance Semigroup (Endo a) where
     (<>) x y = Endo (getEndo x . getEndo y)
@@ -507,10 +507,10 @@ instance Monoid b => Monoid (Arrow a b) where
     mappend x y = Arrow (\l -> getArrow x l `mappend` getArrow y l)
 
 instance Ord a => Semigroup (Tree a) where
-    (<>) x y = foldr (\element tree -> insertIntoTree tree element) x y
+    (<>) = foldr (flip insertIntoTree)
 
 instance Ord a => Monoid (Tree a) where
     mempty = Leaf
     mappend x Leaf = x
     mappend Leaf x = x
-    mappend x y = foldr (\element tree -> insertIntoTree tree element) x y
+    mappend x y    = foldr (flip insertIntoTree) x y

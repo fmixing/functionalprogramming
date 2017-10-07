@@ -1,0 +1,10 @@
+resolver: lts-9.4
+
+packages:
+- hw1/
+
+extra-deps: []
+
+flags: {}
+
+extra-package-dbs: []

@@ -7,8 +7,6 @@ import           Data.Monoid           (Any(..), Sum(..))
 import           Data.Monoid           hiding ((<>), Endo)
 import           Data.Semigroup as Semigroup ((<>))
 import           Test.Hspec
-import           Test.Hspec.QuickCheck
-import           Test.QuickCheck
 
 import           Lib
 
