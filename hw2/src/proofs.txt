@@ -1,0 +1,55 @@
+LAW: apply (f . g) . h x = apply f . (g . h) x
+
+1. apply ((Partial (\l1 -> apply g l1 >>= (\l2 -> apply f l2)) . h) x = 
+   apply (Partial (\l3 -> apply h l3 >>= 
+        \l4 -> apply (Partial (\l1 -> apply g l >>= 
+            (\l2 -> apply f l2))) l4)) x =
+   (\l3 -> apply h l3 >>= \l4 -> apply (Partial (\l1 -> apply g l >>= (\l2 -> apply f l2)) l4)) x =
+   apply h x >>= \l4 -> (Partial (\l1 -> apply g l >>= (\l2 -> apply f l2))) l4 =
+apply h x = Nothing => Nothing
+apply h x = Just x' => Just x' >>= \l4 -> apply (Partial (\l1 -> apply g l1 >>= (\l2 -> apply f l2))) l4
+                        = apply (Partial (\l1 -> apply g l1 >>= (\l2 -> apply f l2))) x'
+                        = (\l1 -> apply g l1 >>= (\l2 -> apply f l2)) x'
+                        = apply g x' >>= (\l2 -> apply f l2)
+apply g x' = Nothing => Nothing
+apply g x'' = Just x'' => apply f x''
+apply f x'' = Nothing => Nothing
+apply f x'' = Just x''' => Just x'''
+
+2. apply (f . (Partial (\l1 -> apply h l1 >>= (\l2 -> apply g l2)))) x =
+   apply Partial (\l3 -> apply (Partial (\l1 -> apply h l1 >>= (\l2 -> apply g l2))) l3 >>= (\l4 -> apply f l4)) x =
+   (\l3 -> apply (Partial (\l1 -> apply h l1 >>= (\l2 -> apply g l2))) l3 >>= (\l4 -> apply f l4)) x = 
+   apply (Partial (\l1 -> apply h l1 >>= (\l2 -> apply g l2))) x >>= (\l4 -> apply f l4) =
+   (\l1 -> apply h l1 >>= (\l2 -> apply g l2)) x >>= (\l4 -> apply f l4) =
+   apply h x >>= (\l2 -> apply g l2) >>= (\l4 -> apply f l4) = 
+apply h x = Nothing => Nothing -- bind ассоциативный
+apply h x = Just x' => Just x' >>= (\l2 -> apply g l2) >>= (\l4 -> apply f l4)
+                        = apply g x' >>= (\l4 -> apply f l4)
+apply g x' = Nothing => Nothing
+apply g x'' = Just x'' => apply f x''
+apply f x'' = Nothing => Nothing
+apply f x'' = Just x''' => Just x'''
+
+LAW: g . ida = idb . g
+
+1. apply g . ida x = 
+   apply Partial (\l -> apply ida l >>= (\l1 -> apply g l1)) x =
+   (\l -> apply ida l >>= (\l1 -> apply g l1)) x =
+   apply ida x >>= (\l1 -> apply g l1) =
+   apply (Partial $ Just . Prelude.id) x >>= (\l1 -> apply g l1) =
+   (Just . Prelude.id) x >>= (\l1 -> apply g l1) =
+   Just x >>= (\l1 -> apply g l1) = 
+   apply g x  
+
+apply g x = Nothing => Nothing
+apply g x = Just x' => Just x'
+
+2. apply idb . g x = 
+   apply Partial (\l1 -> apply g l1 >>= (\l -> apply idb l)) x =
+   (\l1 -> apply g l1 >>= (\l -> apply idb l)) x = 
+   apply g x >>= (\l -> apply idb l)
+
+apply g x = Nothing => Nothing
+apply g x = Just x' => Just x' >>= (\l -> apply idb l) =
+                        apply idb x' = apply (Partial $ Just . Prelude.id) x' = 
+                        (Just . Prelude.id) x = Just x'
