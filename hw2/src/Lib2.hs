@@ -19,12 +19,25 @@ module Lib2
        , bin
        , combinations
        , permutations
+       , Parser (..)
+       , satisfy
+       , char
+       , posInt
+       , Employee (..)
+       , parseName
+       , parsePhone
+       , abParser
+       , abParser_
+       , intPair
+       , intOrUppercase
        ) where
 
 import           Data.Maybe          (fromJust, isNothing, fromMaybe)
-import  qualified Control.Category 
+import qualified Control.Category 
 import Data.List (sortBy)
-import Control.Applicative ((<|>))
+import qualified Control.Applicative ((<|>))
+import Control.Monad (void)
+import qualified Data.Char (isDigit, isUpper)
 ---------Block1
 
 data Expr x = Const x | Add (Expr x) (Expr x) |
@@ -88,7 +101,7 @@ isDefinedAt _ _ = True
 
 orElse :: (a ~> b) -> (a ~> b) -> a ~> b
 orElse f@(Defaulted _ _) _ = f
-orElse f s = Partial (\x -> (apply f x) <|> (apply s x))
+orElse f s = Partial (\x -> (apply f x) Control.Applicative.<|> (apply s x))
 
 instance Control.Category.Category (~>) where
     id = Partial $ Just . Prelude.id
@@ -123,4 +136,114 @@ permutations xs = permutationsInternal [] xs
     permutationsInternal xsint (y:ys) = (permutations (xsint ++ ys) >>= (\l -> [y : l]))
         ++ (permutationsInternal (xsint ++ [y]) ys)
 
------------Block3
+-----------Block4
+
+newtype Parser a
+    = Parser { runParser :: String -> Maybe (a, String) }
+
+satisfy :: (Char -> Bool) -> Parser Char
+satisfy p = Parser f
+  where
+    f [] = Nothing -- fail on the empty input
+    f (x:xs)       -- check if x satisfies the predicate
+        | p x = Just (x, xs)
+        | otherwise = Nothing -- otherwise, fail
+
+char :: Char -> Parser Char
+char c = satisfy (== c)
+
+posInt :: Parser Integer
+posInt = Parser f
+  where
+    f xs
+        | null ns = Nothing
+        | otherwise = Just (read ns, rest)
+                        where (ns, rest) = span Data.Char.isDigit xs
+
+
+applyToFst :: (a -> b) -> Maybe (a, c) -> Maybe (b, c)
+applyToFst f (Just (x, y)) = Just (f x, y)
+applyToFst _ Nothing = Nothing
+
+
+instance Functor Parser where
+    -- fmap f (Parser a) = Parser (\x -> a x >>= (\y -> Just (f $ fst y, snd y)))
+    fmap f (Parser a) = Parser $ (\x -> applyToFst f (a x))
+
+instance Applicative Parser where
+    pure a = Parser $ (\s -> Just (a, s))
+    (<*>) (Parser f) (Parser b) = Parser $ (\s -> f s >>= (\y -> applyToFst (fst y) (b $ snd y)))
+
+----For Tests begins
+
+type Name = String
+data Employee = Emp { name :: Name, phone :: String } deriving (Show)
+
+getName :: String -> (String, String)
+getName [] = ([], [])
+getName (x:xsint)
+    | not $ Data.Char.isDigit x = let (name_, phone_) = getName xsint in 
+        ([x] ++ name_, phone_)
+    | otherwise = ([], x:xsint)
+
+parseName :: Parser Name
+parseName = Parser f
+  where
+    f [] = Nothing
+    f xs = let (name_, l) = getName xs in 
+            if null name_ 
+            then Nothing
+            else Just (name_, l)
+
+parsePhone :: Parser String
+parsePhone = Parser f
+  where
+    f [] = Nothing
+    f xs = if all Data.Char.isDigit xs
+           then Just (xs, "")
+           else Nothing
+
+-- let k = Emp <$> parseName <*> parsePhone
+-- runParser k "Alice123"
+
+----For Tests ends
+
+abParser :: Parser (Char, Char)
+abParser = (,) <$> satisfy (== 'a') <*> satisfy (== 'b')
+
+abParser_ :: Parser ()
+abParser_ = void abParser
+
+-- k = (,) <$> aParser <*> bParser
+-- runParser k "abc"
+-- Just (('a','b'),"c")
+-- runParser k "bc"
+-- Nothing
+-- runParser k "ac"
+-- runParser abParser_ "abc"
+-- Just (('a','b'),"c")
+
+intPair :: Parser [Integer]
+intPair = (\x y -> [x, y]) <$> (posInt <* satisfy (== ' ')) <*> posInt
+
+class Applicative f => Alternative f where
+    empty :: f a
+    (<|>) :: f a -> f a -> f a
+
+instance Alternative Parser where
+    empty :: Parser a
+    empty = Parser (\_ -> Nothing)
+    (<|>) :: Parser a -> Parser a -> Parser a
+    (Parser a) <|> (Parser b) = Parser $ (\s -> (a s) Control.Applicative.<|> (b s))
+
+intOrUppercase :: Parser ()
+intOrUppercase = (void posInt) <|> (void $ satisfy (Data.Char.isUpper))
+
+-- runParser intOrUppercase "123abc"
+-- Just ((),"abc")
+
+-- runParser intOrUppercase "ABC"
+-- Just ((),"BC")
+
+-- runParser intOrUppercase "abc"
+-- Nothing
