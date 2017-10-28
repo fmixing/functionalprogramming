@@ -164,10 +164,24 @@ applyToFst :: (a -> b) -> Maybe (a, c) -> Maybe (b, c)
 applyToFst f (Just (x, y)) = Just (f x, y)
 applyToFst _ Nothing       = Nothing
 
+-- Functor laws
+--     1. fmap id      ≡ id
+--     2. fmap (f . g) ≡ fmap f . fmap g
 
 instance Functor Parser where
     -- fmap f (Parser a) = Parser (\x -> a x >>= (\y -> Just (f $ fst y, snd y)))
     fmap f (Parser a) = Parser (applyToFst f . a)
+
+-- Applicative laws
+--     1. identity
+--         pure id <*> v ≡ v
+--     2. composition
+--         pure (.) <*> u <*> v <*> w ≡ u <*> (v <*> w)
+--     3. homomorphism
+--         pure f <*> pure x ≡ pure (f x)
+--     4. interchange
+--         u <*> pure y ≡ pure ($ y) <*> u
+ 
 
 instance Applicative Parser where
     pure a = Parser (\s -> Just (a, s))

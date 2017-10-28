@@ -52,3 +52,35 @@ apply g x = Nothing => Nothing
 apply g x = Just x' => Just x' >>= (\l -> apply idb l) =
                         apply idb x' = apply (Partial $ Just) x' = 
                         Just x'
+
+------Proofs for Block4
+
+Parser Functor:
+    LAW: fmap id      ≡ id
+
+runParser (fmap id (Parser a)) s = runParser (Parser (\s -> applyToFst id (a s))) s 
+    = (\s -> applyToFst id (a s)) s = applyToFst id (a s)
+
+(a s) = Just (x, y) => applyToFst id (Just (x, y)) = Just (id x, y) = Just (x, y)
+(a s) = Nothing => applyToFst id Nothing = Nothing
+
+runParser (id (Parser a)) s = runParser (Parser a) s = a s
+
+(a s) = Just (x, y) => Just (x, y)
+(a s) = Nothing => Nothing
+
+Parser Applicative: 
+    LAW: pure id <*> v ≡ v
+
+runParser (pure id <*> (Parser v)) s = runParser (Parser (\s -> Just (id, s)) <*> (Parser v)) s
+    = runParser (Parser (\s -> Just (id, s)) <*> Parser v) s
+    = runParser Parser ((\s -> Just (id, s)) >=> (\y -> applyToFst (fst y) (v $ snd y))) s
+    = runParser Parser (\s' -> (\s -> Just (id, s)) s1 >=> (\y -> applyToFst (fst y) (v $ snd y))) s
+    = (\s' -> (\s -> Just (id, s)) s1 >>= (\y -> applyToFst (fst y) (v $ snd y))) s
+    = (\s -> Just (id, s)) s >>= (\y -> applyToFst (fst y) (v $ snd y))
+    = Just (id, s) >>= (\y -> applyToFst (fst y) (v $ snd y))
+    = (\y -> applyToFst (fst y) (v $ snd y)) (id, s)
+    = applyToFst (fst (id, s)) (v $ snd (id, s))
+    = applyToFst id (v s) 
+(v s) = Nothing => Nothing
+(v s) = Just (x, y) => Just (id x, y) = Just (x, y)
