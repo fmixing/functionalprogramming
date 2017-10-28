@@ -3,7 +3,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 
-import qualified Prelude (id)
+import qualified Prelude (id, (.))
+import Data.Functor (Functor, fmap)
 
 class Monad m where
     return     :: a -> m a
@@ -44,35 +45,35 @@ instance Monad m => MonadJoin m where
     returnJoin = return
     join x = x >>= Prelude.id
 
-instance Monad m => Functor f
-    fmap f xs = xs >>= return . f
+instance Monad m => Functor m where
+    fmap f xs = xs >>= (return Prelude.. f)
 
----Proving laws for functor
-    LAW: fmap id  ==  id
-fmap id ≡ (\xs -> xs >>= return . id) ≡ (f . id ≡ id . f ≡ f)
-    ≡ (\xs -> xs >>= return) ≡ (\xs -> xs) ≡ id
+-- ---Proving laws for functor
+--     LAW: fmap id  ==  id
+-- fmap id ≡ (\xs -> xs >>= return . id) ≡ (f . id ≡ id . f ≡ f)
+--     ≡ (\xs -> xs >>= return) ≡ (\xs -> xs) ≡ id
 
-    LAW: fmap (f . g)  ==  fmap f . fmap g
-fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> xs >>= return . g)
-    = (\xs -> xs >>= return (g x) >>= return . f)
-    = (\xs -> xs >>= (\x -> return (g x) >>= return . f))
-    = (\xs -> xs >>= (\x -> return . f (g x)))
-    = (\xs -> xs >>= return . (f . g)))
-    = fmap (f . g)
-------------------------
-MonadFish:
-    LAW: f >=> returnFish ≡ f
-(f >=> returnFish) a ≡ (\x -> (f x >>= returnFish)) a 
-    ≡ (m >>= return ≡ m) ≡ (\x -> f x) a ≡ (β-редукция) f a
+--     LAW: fmap (f . g)  ==  fmap f . fmap g
+-- fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> xs >>= return . g)
+--     = (\xs -> xs >>= return (g x) >>= return . f)
+--     = (\xs -> xs >>= (\x -> return (g x) >>= return . f))
+--     = (\xs -> xs >>= (\x -> return . f (g x)))
+--     = (\xs -> xs >>= return . (f . g)))
+--     = fmap (f . g)
+-- ------------------------
+-- MonadFish:
+--     LAW: f >=> returnFish ≡ f
+-- (f >=> returnFish) a ≡ (\x -> (f x >>= returnFish)) a 
+--     ≡ (m >>= return ≡ m) ≡ (\x -> f x) a ≡ (β-редукция) f a
 
-MonadJoin:
-    LAW: join . fmap returnJoin ≡ id
-(join . fmap returnJoin) ≡ (\x -> join (fmap returnJoin x)) 
-    ≡ (\x -> join (fmap return x)) ≡ (\x -> join (x >>= return . return))
-    ≡ (\x -> join (x >>= (\y -> return (return y))) ≡ (\x -> join (return x)) 
-    ≡ (\x -> return x >>= Prelude.id) ≡ (\x -> Prelude.id x) ≡ (η-преобразование) = Prelude.id
+-- MonadJoin:
+--     LAW: join . fmap returnJoin ≡ id
+-- (join . fmap returnJoin) ≡ (\x -> join (fmap returnJoin x)) 
+--     ≡ (\x -> join (fmap return x)) ≡ (\x -> join (x >>= return . return))
+--     ≡ (\x -> join (x >>= (\y -> return (return y))) ≡ (\x -> join (return x)) 
+--     ≡ (\x -> return x >>= Prelude.id) ≡ (\x -> Prelude.id x) ≡ (η-преобразование) = Prelude.id
 
-    LAW: join . returnJoin ≡ id
-(join . returnJoin) ≡ (\x -> join (returnJoin x)) 
-    ≡ (\x -> join (return x)) ≡ (\x -> return x >>= Prelude.id) 
-    ≡ (\x -> Prelude.id x) = (η-преобразование) = Prelude.id
+--     LAW: join . returnJoin ≡ id
+-- (join . returnJoin) ≡ (\x -> join (returnJoin x)) 
+--     ≡ (\x -> join (return x)) ≡ (\x -> return x >>= Prelude.id) 
+--     ≡ (\x -> Prelude.id x) = (η-преобразование) = Prelude.id

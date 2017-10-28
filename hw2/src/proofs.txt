@@ -36,9 +36,8 @@ LAW: g . ida = idb . g
    apply Partial (\l -> apply ida l >>= (\l1 -> apply g l1)) x =
    (\l -> apply ida l >>= (\l1 -> apply g l1)) x =
    apply ida x >>= (\l1 -> apply g l1) =
-   apply (Partial $ Just . Prelude.id) x >>= (\l1 -> apply g l1) =
-   (Just . Prelude.id) x >>= (\l1 -> apply g l1) =
-   Just x >>= (\l1 -> apply g l1) = 
+   apply (Partial $ Just) x >>= (\l1 -> apply g l1) =
+   Just x >>= (\l1 -> apply g l1) =
    apply g x  
 
 apply g x = Nothing => Nothing
@@ -51,5 +50,5 @@ apply g x = Just x' => Just x'
 
 apply g x = Nothing => Nothing
 apply g x = Just x' => Just x' >>= (\l -> apply idb l) =
-                        apply idb x' = apply (Partial $ Just . Prelude.id) x' = 
-                        (Just . Prelude.id) x = Just x'
+                        apply idb x' = apply (Partial $ Just) x' = 
+                        Just x'

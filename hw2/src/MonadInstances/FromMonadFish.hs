@@ -3,7 +3,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 
-import qualified Prelude (id, const, undefined)
+import qualified Prelude (id, const, undefined, (.))
+import Data.Functor (Functor, fmap)
 
 class Monad m where
     return     :: a -> m a
@@ -45,51 +46,51 @@ instance MonadFish m => MonadJoin m where
     join :: m (m a) -> m a
     join = Prelude.id >=> Prelude.id
 
-instance MonadFish m => Functor f
-    fmap f xs = (id >=> (returnFish . f)) xs
+instance MonadFish m => Functor m where
+    fmap f xs = (Prelude.id >=> (returnFish Prelude.. f)) xs
 
----Proving laws for functor
-    LAW: fmap id  ==  id
-fmap id ≡ (\xs -> (id >=> (returnFish . id)) xs) ≡ (\xs -> (id >=> returnFish) xs)
-    ≡ (\xs -> id xs) ≡ id
+-- ---Proving laws for functor
+--     LAW: fmap id  ==  id
+-- fmap id ≡ (\xs -> (id >=> (returnFish . id)) xs) ≡ (\xs -> (id >=> returnFish) xs)
+--     ≡ (\xs -> id xs) ≡ id
 
-    LAW: fmap (f . g)  ==  fmap f . fmap g
-fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> (id >=> (returnFish . g)) xs)
-    = (\xs -> ((id >=> (returnFish . f)) . (id >=> (returnFish . g))) xs)
-    = (\xs -> (( >=> (returnFish . f)) . id . (id >=> (returnFish . g))) xs)
-    = (\xs -> (( >=> (returnFish . f)) . (id >=> (returnFish . g))) xs)
-    = (\xs -> ((id >=> (returnFish . g)) >=> (returnFish . f)) xs)
-    = (\xs -> ((id >=> ((returnFish . g) >=> (returnFish . f))) xs)
-    = (\xs -> ((id >=> ( >=> (returnFish . f)) . returnFish . g) xs)
-    = (\xs -> ((id >=> (returnFish >=> (returnFish . f)) . g) xs)
-    = (\xs -> ((id >=> ((returnFish . f)) . g) xs)
-    = (\xs -> (id >=> (returnFish . (f . g)) xs)
-    = fmap (f . g)
---------------------
+--     LAW: fmap (f . g)  ==  fmap f . fmap g
+-- fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> (id >=> (returnFish . g)) xs)
+--     = (\xs -> ((id >=> (returnFish . f)) . (id >=> (returnFish . g))) xs)
+--     = (\xs -> (( >=> (returnFish . f)) . id . (id >=> (returnFish . g))) xs)
+--     = (\xs -> (( >=> (returnFish . f)) . (id >=> (returnFish . g))) xs)
+--     = (\xs -> ((id >=> (returnFish . g)) >=> (returnFish . f)) xs)
+--     = (\xs -> ((id >=> ((returnFish . g) >=> (returnFish . f))) xs)
+--     = (\xs -> ((id >=> ( >=> (returnFish . f)) . returnFish . g) xs)
+--     = (\xs -> ((id >=> (returnFish >=> (returnFish . f)) . g) xs)
+--     = (\xs -> ((id >=> ((returnFish . f)) . g) xs)
+--     = (\xs -> (id >=> (returnFish . (f . g)) xs)
+--     = fmap (f . g)
+-- --------------------
 
-fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> xs >>= return . g)
-    = (\xs -> xs >>= return (g x) >>= return . f)
-    = (\xs -> xs >>= (\x -> return (g x) >>= return . f))
-    = (\xs -> xs >>= (\x -> return . f (g x)))
-    = (\xs -> xs >>= return . (f . g)))
-    = fmap (f . g)
+-- fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> xs >>= return . g)
+--     = (\xs -> xs >>= return (g x) >>= return . f)
+--     = (\xs -> xs >>= (\x -> return (g x) >>= return . f))
+--     = (\xs -> xs >>= (\x -> return . f (g x)))
+--     = (\xs -> xs >>= return . (f . g)))
+--     = fmap (f . g)
 
 
-Monad 
-    LAW: m >>= return ≡ m
-m >>= return = (Prelude.id >=> returnFish) m = Prelude.id m = m
+-- Monad 
+--     LAW: m >>= return ≡ m
+-- m >>= return = (Prelude.id >=> returnFish) m = Prelude.id m = m
 
-    LAW: return a >>= f  ≡ f a
-return a >>= f = returnFish a >>= f = (Prelude.id >=> f) returnFish a
-    = ((\x -> Prelude.id x) >=> (\y -> f y)) returnFish a
-    = ((Prelude.id >=> f) . returnFish) a = (( >=> f) . Prelude.id . returnFish) a
-    = (( >=> f) . (Prelude.id . returnFish)) a = (f . id ≡ id . f ≡ f) =
-    = (( >=> f) . returnFish) a = (returnFish >=> f) a = f a
+--     LAW: return a >>= f  ≡ f a
+-- return a >>= f = returnFish a >>= f = (Prelude.id >=> f) returnFish a
+--     = ((\x -> Prelude.id x) >=> (\y -> f y)) returnFish a
+--     = ((Prelude.id >=> f) . returnFish) a = (( >=> f) . Prelude.id . returnFish) a
+--     = (( >=> f) . (Prelude.id . returnFish)) a = (f . id ≡ id . f ≡ f) =
+--     = (( >=> f) . returnFish) a = (returnFish >=> f) a = f a
 
-MonadJoin:
-    LAW: join . returnJoin ≡ id
+-- MonadJoin:
+--     LAW: join . returnJoin ≡ id
 
-(Prelude.id >=> Prelude.id) . returnJoin = (( >=> Prelude.id) . Prelude.id) . returnJoin
-    = (( >=> Prelude.id) . Prelude.id) . returnJoin = ( >=> Prelude.id) . returnJoin
-    = (returnJoin >=> Prelude.id) = Prelude.id
+-- (Prelude.id >=> Prelude.id) . returnJoin = (( >=> Prelude.id) . Prelude.id) . returnJoin
+--     = (( >=> Prelude.id) . Prelude.id) . returnJoin = ( >=> Prelude.id) . returnJoin
+--     = (returnJoin >=> Prelude.id) = Prelude.id
 
