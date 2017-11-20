@@ -58,6 +58,8 @@ type ArithmeticError = String
 evalInternal :: Expr Int -> Expr Int -> (Int -> Int -> Int) -> Either ArithmeticError Int
 evalInternal x y func = eval x >>= (\f -> fmap (func f) (eval y))
 
+-- liftA2 func (eval x) (eval y)
+
 eval :: Expr Int -> Either ArithmeticError Int
 eval (Const x) = return x
 eval (Add x y) = evalInternal x y (+)
@@ -133,7 +135,7 @@ permutations xs = permutationsInternal [] xs
   where
     permutationsInternal _ [] = []
     permutationsInternal xsint (y:ys) = (permutations (xsint ++ ys) >>= (\l -> [y : l]))
-        ++ permutationsInternal (xsint ++ [y]) ys
+        ++ permutationsInternal (y:xsint) ys
 
 -----------Block4
 
@@ -221,6 +223,7 @@ parsePhone = Parser f
 
 abParser :: Parser (Char, Char)
 abParser = (,) <$> satisfy (== 'a') <*> satisfy (== 'b')
+-- liftA2 (,) (char 'a') (char 'b')
 
 abParser_ :: Parser ()
 abParser_ = Control.Monad.void abParser
@@ -236,7 +239,7 @@ instance Alternative Parser where
     empty :: Parser a
     empty = Parser (const Nothing)
     (<|>) :: Parser a -> Parser a -> Parser a
-    (Parser a) <|> (Parser b) = Parser (\s -> (a s) Control.Applicative.<|> (b s))
+    Parser a <|> Parser b = Parser (\s -> (a s) Control.Applicative.<|> (b s))
 
 intOrUppercase :: Parser ()
 intOrUppercase = (Control.Monad.void posInt) <|> (Control.Monad.void $ satisfy Data.Char.isUpper)

@@ -54,7 +54,7 @@ instance Monad m => Functor m where
 --     ≡ (\xs -> xs >>= return) ≡ (\xs -> xs) ≡ id
 
 --     LAW: fmap (f . g)  ==  fmap f . fmap g
--- fmap f . fmap g = fmap f (fmap g) = fmap f (\xs -> xs >>= return . g)
+-- fmap f . fmap g = \x -> fmap f (fmap g x) = fmap f (\xs -> xs >>= return . g)
 --     = (\xs -> xs >>= return (g x) >>= return . f)
 --     = (\xs -> xs >>= (\x -> return (g x) >>= return . f))
 --     = (\xs -> xs >>= (\x -> return . f (g x)))
