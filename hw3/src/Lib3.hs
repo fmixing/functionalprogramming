@@ -19,36 +19,35 @@ module Lib3
        , ArithmeticError (..)
        , aExpr
        , whileParser
-       , AExpr (..)
-       , ABinOp (..)
+    --    , AExpr (..)
+    --    , ABinOp (..)
        , StateEnvironment (..)
        , StateError (..)
        , declare
        , update
        , Variable (..)
-       , parseVarExpr
-       , evaluateVarExpr
+       , parseProgram
+    --    , evaluateVarExpr
        , evaluateVarExpr'
        , main
        , ParsingError (..)
        ) where
 
-import qualified Data.Map.Strict as Map (Map, fromList, insert, lookup, empty)
+import qualified Data.Map.Strict as Map (Map, insert, lookup, empty, intersection)
 import Control.Applicative (liftA2)
 import Control.Monad.Reader (Reader, asks, runReader, MonadReader)
-import Control.Monad.State (State, get, state, runState, liftM, MonadState, MonadIO, StateT, evalState, evalStateT, execStateT)
+import Control.Monad.State (State, get, state, MonadState, MonadIO, execStateT, runStateT)
 import Control.Monad (fail)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Maybe (maybe, isJust, isNothing)
-import Data.Either (isLeft, either)
+import Data.Either (either)
 import Debug.Trace (trace)
 import Data.List (null)
-import Control.Monad (void)
 
 import Data.Void (Void)
 import Text.Megaparsec (Parsec, notFollowedBy, between, try, many, (<|>), parseTest', parseTest, eof, parse)
-import Text.Megaparsec.Char (space, space1, char, string, alphaNumChar, letterChar)
+import Text.Megaparsec.Char (space, space1, char, string, alphaNumChar, letterChar, newline)
 import Text.Megaparsec.Expr (Operator (..), makeExprParser)
 import qualified Text.Megaparsec.Char.Lexer as L
 
@@ -62,20 +61,20 @@ data Expr = Var VarName | Lit Const | Add Expr Expr |
 
 data Environment = Environment { dict  :: Map.Map VarName Const }
 
-data ParsingError = ArithmError ArithmeticError | VarError StateError deriving (Show, Eq)
+data ParsingError = ArithmError ArithmeticError | VarError StateError | ForError CycleError deriving (Show, Eq)
 
 data ArithmeticError = DivisionByZero | NameNotFound deriving (Show, Eq)
 
-getVarValue :: VarName -> Reader Environment (Either ParsingError Const)
+getVarValue :: (MonadReader Environment m) => VarName -> m (Either ParsingError Const)
 getVarValue varName = asks ((maybe (Left $ ArithmError $ NameNotFound) (Right . id)) . Map.lookup varName . dict)
 
-evaluateInternal :: Expr -> Expr -> (Const -> Const -> Const) -> Reader Environment (Either ParsingError Const)
+evaluateInternal :: (MonadReader Environment m) => Expr -> Expr -> (Const -> Const -> Const) -> m (Either ParsingError Const)
 evaluateInternal x y func = asks (\env -> 
     let resx = runReader (evaluate x) env
         resy = runReader (evaluate y) env
     in liftA2 func resx resy)
 
-evaluate :: Expr -> Reader Environment (Either ParsingError Integer)
+evaluate :: (MonadReader Environment m) => Expr -> m (Either ParsingError Integer)
 evaluate (Lit x) = return $ Right x
 evaluate (Var name) = getVarValue name
 evaluate (Neg x) = evaluateInternal (Lit 0) x (-)
@@ -90,56 +89,77 @@ evaluate (Let name y z) = asks (\env -> let resy = runReader (evaluate y) env in
 
 ----------------Second
 
-convertAExprToExpr :: AExpr -> Expr
-convertAExprToExpr (AVar varName) = Var varName
-convertAExprToExpr (ALit aConst) = Lit aConst
-convertAExprToExpr (ANeg eExpr) = Neg $ convertAExprToExpr eExpr
-convertAExprToExpr (ABinary ASub aExpr1 aExpr2) = Sub (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
-convertAExprToExpr (ABinary AAdd aExpr1 aExpr2) = Add (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
-convertAExprToExpr (ABinary AMul aExpr1 aExpr2) = Mul (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
-convertAExprToExpr (ABinary ADiv aExpr1 aExpr2) = Div (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
-convertAExprToExpr (ALet varName aExpr1 aExpr2) = Let varName (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr :: AExpr -> Expr
+-- convertAExprToExpr (AVar varName) = Var varName
+-- convertAExprToExpr (ALit aConst) = Lit aConst
+-- convertAExprToExpr (ANeg eExpr) = Neg $ convertAExprToExpr eExpr
+-- convertAExprToExpr (ABinary ASub aExpr1 aExpr2) = Sub (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ABinary AAdd aExpr1 aExpr2) = Add (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ABinary AMul aExpr1 aExpr2) = Mul (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ABinary ADiv aExpr1 aExpr2) = Div (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ALet varName aExpr1 aExpr2) = Let varName (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+
+-- convertAExprToExpr :: AExpr -> Expr
+-- convertAExprToExpr k = k
+-- convertAExprToExpr (AVar varName) = Var varName
+-- convertAExprToExpr (ALit aConst) = Lit aConst
+-- convertAExprToExpr (ANeg eExpr) = Neg $ convertAExprToExpr eExpr
+-- convertAExprToExpr (ASub aExpr1 aExpr2) = Sub (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (AAdd aExpr1 aExpr2) = Add (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (AMul aExpr1 aExpr2) = Mul (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ADiv aExpr1 aExpr2) = Div (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
+-- convertAExprToExpr (ALet varName aExpr1 aExpr2) = Let varName (convertAExprToExpr aExpr1) (convertAExprToExpr aExpr2)
 
 
 -- x + 3 * (let x = 2 in x / 2)
 
-data AExpr = AVar VarName
-           | ALit Const
-           | ANeg AExpr
-           | ABinary ABinOp AExpr AExpr
-           | ALet VarName AExpr AExpr
-           deriving (Show, Eq)
+-- data AExpr = AVar VarName
+--            | ALit Const
+--            | ANeg AExpr
+--            | ABinary ABinOp AExpr AExpr
+--            | ALet VarName AExpr AExpr
+--            deriving (Show, Eq)
 
-data ABinOp = AAdd
-            | ASub
-            | AMul
-            | ADiv
-            deriving (Show, Eq)
+-- data AExpr = AVar VarName
+--            | ALit Const
+--            | ANeg AExpr
+--            | AAdd AExpr AExpr
+--            | ASub AExpr AExpr
+--            | AMul AExpr AExpr
+--            | ADiv AExpr AExpr
+--            | ALet VarName AExpr AExpr
+--            deriving (Show, Eq)
+
+-- data ABinOp = AAdd
+--             | ASub
+--             | AMul
+--             | ADiv
+--             deriving (Show, Eq)
 
 -- data ParsecT e s m a
 -- e - error, s - stream type, m - underlying monad, a - return type
 -- type Parsec e s = ParsecT e s Identity - non-transformer variant of the ParsecT - как Reader от ReaderT
 type Parser = Parsec Void String -- e - ошибка - Void, s - stream type - String
 
-whileParser :: Parser AExpr
+whileParser :: Parser Expr
 whileParser = between space eof aExpr
 
-aExpr :: Parser AExpr
+aExpr :: Parser Expr
 aExpr = makeExprParser aTerm aOperators
 
-aTerm :: Parser AExpr
+aTerm :: Parser Expr
 aTerm = parens letParser
-    <|> AVar <$> varNameParserS
-    <|> ALit <$> integer
+    <|> Var <$> varNameParserS
+    <|> Lit <$> integer
     <|> parens aExpr
 
-aOperators :: [[Operator Parser AExpr]]
+aOperators :: [[Operator Parser Expr]]
 aOperators = 
-    [[ Prefix  (ANeg <$ symbol "-"), 
-       InfixL  ((ABinary AMul) <$ symbol "*"),
-       InfixL  ((ABinary ADiv) <$ symbol "/")],
-     [ InfixL  ((ABinary AAdd) <$ symbol "+"),
-       InfixL  ((ABinary ASub) <$ symbol "-")]]
+    [[ Prefix  (Neg <$ symbol "-"), 
+       InfixL  ((Mul) <$ symbol "*"),
+       InfixL  ((Div) <$ symbol "/")],
+     [ InfixL  ((Add) <$ symbol "+"),
+       InfixL  ((Sub) <$ symbol "-")]]
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme space
@@ -159,22 +179,23 @@ varNameParserS = (lexeme . try) (parseName >>= checkName)
     parseName :: Parser String
     parseName = (:) <$> letterChar <*> many alphaNumChar --проверяет, что сначала буква, потом [a..zA..Z0..9]*
     checkName :: String -> Parser String
-    checkName varName = if (varName == "let") || (varName ==  "in" || varName == "mut") --проверка на то, что слово не зарезервировано
-        then fail $ "Name of var should be neither let nor in, nor mut" 
-        else return varName
+    checkName varName = 
+        if (varName == "let" || varName ==  "in" || varName == "mut" || varName == "for") --проверка на то, 
+            then fail $ "Name of var should be neither let nor in, nor mut, nor for"      --что слово не зарезервировано
+            else return varName
 
 rword :: String -> Parser ()
 rword w = lexeme (string w *> notFollowedBy alphaNumChar) --за словом не следуют другие символы
 
-letParser :: Parser AExpr
+letParser :: Parser Expr
 letParser = do
     rword "let"
     x <- varNameParserS
-    rword "="
+    _ <- symbol "="
     expr <- aExpr
     rword "in"
     sExpr <- aExpr
-    return (ALet x expr sExpr)
+    return (Let x expr sExpr)
 
 
 ----------------Third
@@ -197,115 +218,235 @@ update name value = state $ (\env -> let mapEnv = stateDict env in
 
 ---------------Fourth
 
-data Variable = Declare VarName AExpr | Update VarName AExpr | Console AExpr deriving (Show, Eq)
+data Variable = Declare VarName Expr | Update VarName Expr
+              | ConsoleOutput Expr | ConsoleInput VarName deriving (Show, Eq)
 
-isDeclare :: Variable -> Bool
-isDeclare (Declare _ _) = True
+data LanguageLexem = VarExpr Variable | For VarName Expr Expr [LanguageLexem] deriving (Show, Eq)
+
+isFor :: LanguageLexem -> Bool
+isFor (For _ _ _ _) = True
+isFor _ = False
+
+isDeclare :: LanguageLexem -> Bool
+isDeclare (VarExpr (Declare _ _)) = True
 isDeclare _ = False
 
-isConsole :: Variable -> Bool
-isConsole (Console _) = True
+isConsole :: LanguageLexem -> Bool
+isConsole (VarExpr (ConsoleInput _)) = True
+isConsole (VarExpr (ConsoleOutput _)) = True
 isConsole _ = False
 
-getVarName :: Variable -> VarName
-getVarName (Declare varName _) = varName
-getVarName (Update varName _) = varName
-getVarName (Console _) = error "Console expr has no varName"
+isConsoleOutput :: LanguageLexem -> Bool
+isConsoleOutput (VarExpr (ConsoleOutput _)) = True
+isConsoleOutput _ = False
 
-getVarExpr :: Variable -> AExpr
-getVarExpr (Declare _ varExpr) = varExpr
-getVarExpr (Update _ varExpr) = varExpr
-getVarExpr (Console varExpr) = varExpr
- 
-parseVarExpr :: Parser Variable
-parseVarExpr = between space eof variable
+getVarName :: LanguageLexem -> VarName
+getVarName (VarExpr (Declare varName _)) = varName
+getVarName (VarExpr (Update varName _)) = varName
+getVarName (VarExpr (ConsoleInput varName)) = varName
+getVarName (VarExpr (ConsoleOutput _)) = error "ConsoleOutput expr has no varName"
+getVarName (For varName _ _ _) = varName
 
-variable :: Parser Variable
-variable = declarationParser
+getVarExpr :: LanguageLexem -> Expr
+getVarExpr (VarExpr (Declare _ varExpr)) = varExpr
+getVarExpr (VarExpr (Update _ varExpr)) = varExpr
+getVarExpr (VarExpr (ConsoleOutput varExpr)) = varExpr
+getVarExpr (VarExpr (ConsoleInput _)) = error "ConsoleInput expr has no varExpr"
+getVarExpr (For _ _ _ _) = error "For cycle has multiple varExpr, please use getVarExprsFor"
+
+parseProgram :: Parser [LanguageLexem]
+parseProgram = between space eof parseLanguageLexems
+
+parseLanguageLexems :: Parser [LanguageLexem]
+parseLanguageLexems = many (variable <|> forParser)
+
+variable :: Parser LanguageLexem
+variable = VarExpr <$> (declarationParser
     <|> updatingParser
-    <|> consoleParser
+    <|> consoleOutputParser
+    <|> consoleInputParser)
+
 
 declarationParser :: Parser Variable
 declarationParser = do
     rword "mut"
     x <- varNameParserS
-    rword "="
+    _ <- symbol "="
     expr <- aExpr
     return (Declare x expr)
 
 updatingParser :: Parser Variable
 updatingParser = do
     x <- varNameParserS
-    rword "="
+    _ <- symbol "="
     expr <- aExpr
     return (Update x expr)
 
-consoleParser :: Parser Variable
-consoleParser = do
-    rword "<"
+consoleOutputParser :: Parser Variable
+consoleOutputParser = do
+    _ <- symbol "<"
     expr <- aExpr
-    return (Console expr)
+    return (ConsoleOutput expr)
 
----------------Fifth&Sixth
+consoleInputParser :: Parser Variable
+consoleInputParser = do
+    _ <- symbol ">"
+    name <- varNameParserS
+    return (ConsoleInput name)
 
-fromLeft :: Either a b -> a
-fromLeft (Left a) = a
-fromLeft _ = error "I sense something bad"
+-- for x = expr to expr {body .... }
+forParser :: Parser LanguageLexem
+forParser = do
+    rword "for"
+    name <- varNameParserS
+    _ <- symbol "="
+    expr1 <- aExpr
+    rword "to"
+    expr2 <- aExpr
+    _ <- symbol "{"
+    body <- parseLanguageLexems
+    _ <- symbol "}"
+    return (For name expr1 expr2 body)
+
+---------------Fifth&Sixth&Seventh
+
+data CycleError = CounterNameAlreadyExists | NegativeCycleCount deriving (Show, Eq)
 
 fromRight :: Either a b -> b
 fromRight (Right b) = b
 fromRight _ = error "I sense something bad"
 
-printConsole :: (MonadState StateEnvironment m, MonadIO m) => Variable -> m (Maybe ParsingError)
-printConsole x = do 
+printConsole :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
+printConsole x = do
     let xExpr = getVarExpr x
     stateEnv <- get
-    let xVal = runReader (evaluate $ convertAExprToExpr xExpr) (Environment $ stateDict stateEnv)
+    -- let xVal = runReader (evaluate $ convertAExprToExpr xExpr) (Environment $ stateDict stateEnv)
+    let xVal = runReader (evaluate xExpr) (Environment $ stateDict stateEnv)    
     liftIO $ putStrLn $ "< value for expression " ++ show xExpr ++ " is " ++ show xVal
     return $ either (\err -> Just err) (\_ -> Nothing) xVal
 
-evaluateVarExprInternal :: (MonadState StateEnvironment m, MonadIO m) => Variable -> m (Maybe ParsingError)
+readConsole :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
+readConsole x = do
+    let xName = getVarName x
+    liftIO $ putStrLn $ "> please print value for variable " ++ getVarName x
+    xVal <- liftIO $ getLine
+    stateEnv <- get
+    let mapEnv = stateDict stateEnv 
+    if isNothing $ Map.lookup xName mapEnv
+        then declare xName (read xVal)
+        else update xName (read xVal)
+
+dealWithConsole :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
+dealWithConsole x = do 
+    if isConsoleOutput x then printConsole x else readConsole x
+
+evaluateVarExprInternal :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
 evaluateVarExprInternal x = do
     let xExpr = getVarExpr x
     let xName = getVarName x
     stateEnv <- get
-    let xVal = runReader (evaluate $ convertAExprToExpr xExpr) (Environment $ stateDict stateEnv)
-    ans <- case isLeft xVal of
-        True -> return $ Just $ fromLeft xVal
-        False -> case isDeclare x of 
-            True -> declare xName $ fromRight xVal
-            False -> update xName $ fromRight xVal
-    return ans
+    let xVal = runReader (evaluate xExpr) (Environment $ stateDict stateEnv)
+    case xVal of
+        Left err -> return $ Just err
+        Right val -> case isDeclare x of 
+            True -> declare xName val
+            False -> update xName val
 
----ONLY FOR TESTS
-evaluateVarExpr :: [Variable] -> State StateEnvironment (Maybe ParsingError)
-evaluateVarExpr [] = return Nothing
-evaluateVarExpr (x:xs) = do
-    let xName = getVarName x
-    let xExpr = getVarExpr x
+runBody :: (MonadState StateEnvironment m, MonadIO m) => VarName -> Integer -> Integer -> [LanguageLexem] -> m (Maybe ParsingError)
+runBody counter counterVal n body = do
     stateEnv <- get
-    let xVal = runReader (evaluate $ convertAExprToExpr xExpr) (Environment $ stateDict stateEnv)
-    ans <- case isLeft xVal of
-        True -> return $ Just $ fromLeft xVal
-        False -> case isDeclare x of 
-            True -> declare xName $ fromRight xVal
-            False -> update xName $ fromRight xVal
-    if (not $ null xs) && (isNothing ans) then evaluateVarExpr xs else return ans
+    let dictProgram = stateDict stateEnv
+    case n >= 0 of
+        True -> do
+            let count = fromIntegral n
+            let lexems = concat $ replicate count (body ++ [VarExpr (Update counter (Add (Var counter) (Lit 1)))])
+            bodyAns <- runStateT (runProgram lexems) (StateEnvironment $ Map.insert counter counterVal $ stateDict stateEnv)
+            state $ (\_ -> (fst bodyAns, StateEnvironment $ Map.intersection (stateDict $ snd bodyAns) dictProgram))
+        False -> return $ Just $ ForError NegativeCycleCount
 
-evaluateVarExpr' :: (MonadState StateEnvironment m, MonadIO m) => [Variable] -> m ()
-evaluateVarExpr' [] = return ()
-evaluateVarExpr' (x:xs) = do
-    ans <- if isConsole x 
-        then printConsole x
-        else evaluateVarExprInternal x
-    if (not $ null xs) then evaluateVarExpr' xs else liftIO $ print ans 
+sub21 :: (Either ParsingError Integer) -> (Either ParsingError Integer) -> (Either ParsingError Integer)
+sub21 x y = do
+    xVal <- x
+    yVal <- y
+    return (yVal - xVal)
+
+runFor :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
+runFor (For varName aExpr1 aExpr2 body) = do 
+    stateEnv <- get
+    let dictProgram = stateDict stateEnv
+    if isJust $ Map.lookup varName dictProgram 
+        then return $ Just $ ForError $ CounterNameAlreadyExists
+        else do
+            let fstVal = runReader (evaluate aExpr1) (Environment dictProgram)
+            let sndVal = runReader (evaluate aExpr2) (Environment dictProgram)
+            let valExpr = sub21 fstVal sndVal
+            case valExpr of
+                Left err -> return $ Just err
+                Right val -> runBody varName (fromRight fstVal) val body
+
+    
+evaluateVarExpr' :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
+evaluateVarExpr' x = do
+    if isConsole x then dealWithConsole x else evaluateVarExprInternal x
+
+runProgram :: (MonadState StateEnvironment m, MonadIO m) => [LanguageLexem] -> m (Maybe ParsingError)
+runProgram [] = return Nothing
+runProgram (x:xs) = do 
+    ans <- if isFor x 
+        then runFor x 
+        else evaluateVarExpr' x
+    if not $ null xs && isNothing ans
+        then runProgram xs 
+        else do
+            liftIO $ print ans 
+            return ans
 
 main :: IO ()
 main = do
-    let upd = Update "x" (ALet "x" (ALit 2) (AVar "x")) 
-    let dec = Declare "x" (ALit 1)
-    let bad = Declare "x" (ABinary AAdd (AVar "x") (ABinary ADiv (ABinary AMul (ALit 3) (ALit 2)) (ALit 0)))
-    let console = Console (ABinary AAdd (AVar "y") (ALit 1))
-    -- putStrLn $ show (runState (evaluateVarExpr [dec, dec]) (StateEnvironment $ Map.empty))
-    ans <- execStateT (evaluateVarExpr' [dec, console]) (StateEnvironment $ Map.empty)
-    print ans
+    s <- readFile "fact.txt"
+    let parsed = parse parseProgram "fact.txt" s
+    case parsed of
+        Left err -> print err
+        Right exprs -> do
+            ans <- execStateT (runProgram exprs) (StateEnvironment $ Map.empty)
+            print ans
+
+-- main :: IO ()
+-- main = do
+--     -- let upd = VarExpr (Update "x" (ALet "x" (ALit 2) (AVar "x")))
+--     -- let dec = VarExpr (Declare "x" (ALit 1))
+--     -- let bad = VarExpr (Declare "x" (ABinary AAdd (AVar "x") (ABinary ADiv (ABinary AMul (ALit 3) (ALit 2)) (ALit 0))))
+--     -- let consoleOut = VarExpr (ConsoleOutput (ABinary AAdd (AVar "x") (ALit 1)))
+--     -- let cI = VarExpr (ConsoleInput "x")
+--     -- let forBad = [For "x" (ALit 1) (ALit 2) [VarExpr (ConsoleInput "x")], VarExpr (ConsoleOutput (AVar "x"))]
+--     let for = [VarExpr (Declare "x" (ALit 5)),For "i" (ALit 1) (ALit 4) [VarExpr (ConsoleOutput (ABinary AAdd (AVar "x") (AVar "i")))],VarExpr (ConsoleOutput (AVar "x"))]
+--     let fact = [VarExpr (Declare "x" (ALit 1)),For "i" (ALit 1) (ALit 5) [VarExpr (ConsoleOutput (ABinary AMul (AVar "x") (AVar "i"))),VarExpr (Update "x" (ABinary AMul (AVar "x") (AVar "i")))],VarExpr (ConsoleOutput (AVar "x")),VarExpr (ConsoleInput "x")]
+--     -- putStrLn $ show (runState (evaluateVarExpr [dec, dec]) (StateEnvironment $ Map.empty))
+--     ans <- execStateT (runProgram fact) (StateEnvironment $ Map.empty)
+--     -- ans <- execStateT (evaluateVarExpr' [cI]) (StateEnvironment $ Map.empty) 
+--     print ans
+
+
+---ONLY FOR TESTS
+-- evaluateVarExpr :: [Variable] -> State StateEnvironment (Maybe ParsingError)
+-- evaluateVarExpr [] = return Nothing
+-- evaluateVarExpr (x:xs) = do
+--     let xName = getVarName x
+--     let xExpr = getVarExpr x
+--     stateEnv <- get
+--     let xVal = runReader (evaluate $ convertAExprToExpr xExpr) (Environment $ stateDict stateEnv)
+--     ans <- case isLeft xVal of
+--         True -> return $ Just $ fromLeft xVal
+--         False -> case isDeclare x of 
+--             True -> declare xName $ fromRight xVal
+--             False -> update xName $ fromRight xVal
+--     if (not $ null xs) && (isNothing ans) then evaluateVarExpr xs else return ans
+
+
+-- evaluateVarExpr' :: (MonadState StateEnvironment m, MonadIO m) => [LanguageLexem] -> m ()
+-- evaluateVarExpr' [] = return ()
+-- evaluateVarExpr' (x:xs) = do
+--     ans <- if isConsole x 
+--         then dealWithConsole x
+--         else evaluateVarExprInternal x
+--     if (not $ null xs) && (isNothing ans) then evaluateVarExpr' xs else liftIO $ print ans 
