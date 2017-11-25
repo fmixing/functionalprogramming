@@ -1,0 +1,10 @@
+mut x = 0
+mut y = 1
+mut ans = 0
+for i = 1 to 10 {
+    ans = x + y
+    x = y
+    y = ans
+    < ans
+}
+< ans

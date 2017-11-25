@@ -26,18 +26,22 @@ module Lib3
        , evaluateVarExpr'
        , main
        , ParsingError (..)
+       , LanguageLexem (..)
+       , runProgram
+       , LoopError (..)
        ) where
 
+import           System.Environment         (getArgs)
 import           Control.Applicative        (liftA2)
 import           Control.Monad              (fail)
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Reader       (MonadReader, asks, runReader)
-import           Control.Monad.State        (MonadIO, MonadState, execStateT, get,
-                                             runStateT, state)
-import           Data.Either                (either)
+import           Control.Monad.State        (MonadIO, MonadState, get,
+                                             runStateT, state, modify, evalStateT)
+import           Data.Either                (either, isRight)
 import           Data.List                  (null)
 import qualified Data.Map.Strict            as Map (Map, empty, insert, intersection,
-                                                    lookup)
+                                                    lookup, fromList)
 import           Data.Maybe                 (isJust, isNothing, maybe)
 import           Debug.Trace                (trace)
 
@@ -45,7 +49,7 @@ import           Data.Void                  (Void)
 import           Text.Megaparsec            (Parsec, between, eof, many, notFollowedBy,
                                              parse, parseTest', try, (<|>))
 import           Text.Megaparsec.Char       (alphaNumChar, letterChar, space, string)
-import qualified Text.Megaparsec.Char.Lexer as L
+import qualified Text.Megaparsec.Char.Lexer as L (lexeme, symbol, decimal)
 import           Text.Megaparsec.Expr       (Operator (..), makeExprParser)
 
 ----------------First
@@ -56,14 +60,14 @@ data Expr = Var VarName | Lit Const | Add Expr Expr |
             Mul Expr Expr | Sub Expr Expr | Div Expr Expr |
             Let VarName Expr Expr | Neg Expr deriving (Show, Eq)
 
-newtype Environment = Environment { dict  :: Map.Map VarName Const }
+newtype Environment = Environment { dict  :: Map.Map VarName Const } deriving (Show, Eq)
 
-data ParsingError = ArithmError ArithmeticError | VarError StateError | ForError CycleError deriving (Show, Eq)
+data ParsingError = ArithmError ArithmeticError | VarError StateError | ForError LoopError deriving (Show, Eq)
 
-data ArithmeticError = DivisionByZero | NameNotFound deriving (Show, Eq)
+data ArithmeticError = DivisionByZero | NameNotFound VarName deriving (Show, Eq)
 
 getVarValue :: (MonadReader Environment m) => VarName -> m (Either ParsingError Const)
-getVarValue varName = asks ((maybe (Left $ ArithmError NameNotFound) (Right)) . Map.lookup varName . dict)
+getVarValue varName = asks ((maybe (Left $ ArithmError $ NameNotFound varName) (Right)) . Map.lookup varName . dict)
 
 evaluateInternal :: (MonadReader Environment m) => Expr -> Expr -> (Const -> Const -> Const) -> m (Either ParsingError Const)
 evaluateInternal x y func = asks (\env ->
@@ -98,10 +102,9 @@ aExpr :: Parser Expr
 aExpr = makeExprParser aTerm aOperators
 
 aTerm :: Parser Expr
-aTerm = parens letParser
+aTerm = parens (aExpr <|> letParser)
     <|> Var <$> varNameParserS
     <|> Lit <$> integer
-    <|> parens aExpr
 
 aOperators :: [[Operator Parser Expr]]
 aOperators =
@@ -150,20 +153,20 @@ letParser = do
 
 ----------------Third
 
-newtype StateEnvironment = StateEnvironment { stateDict :: Map.Map String Integer } deriving (Show)
+newtype StateEnvironment = StateEnvironment { stateDict :: Map.Map String Integer } deriving (Show, Eq)
 
-data StateError = NameAlreadyExistsState | NameNotFoundState deriving (Show, Eq)
+data StateError = NameAlreadyExistsState VarName | NameNotFoundState VarName deriving (Show, Eq)
 
 declare :: (MonadState StateEnvironment m) => String -> Integer -> m (Maybe ParsingError)
 declare name value = state (\env -> let mapEnv = stateDict env in
                      if isJust $ Map.lookup name mapEnv
-                     then (Just $ VarError NameAlreadyExistsState, env)
+                     then (Just $ VarError $ NameAlreadyExistsState name, env)
                      else (Nothing, StateEnvironment $ Map.insert name value mapEnv))
 
 update :: (MonadState StateEnvironment m) => String -> Integer -> m (Maybe ParsingError)
 update name value = state (\env -> let mapEnv = stateDict env in
                      if isNothing $ Map.lookup name mapEnv
-                     then (Just $ VarError NameNotFoundState, env)
+                     then (Just $ VarError $ NameNotFoundState name, env)
                      else (Nothing, StateEnvironment $ Map.insert name value mapEnv))
 
 ---------------Fourth
@@ -202,7 +205,7 @@ getVarExpr (VarExpr (Declare _ varExpr)) = varExpr
 getVarExpr (VarExpr (Update _ varExpr)) = varExpr
 getVarExpr (VarExpr (ConsoleOutput varExpr)) = varExpr
 getVarExpr (VarExpr (ConsoleInput _)) = error "ConsoleInput expr has no varExpr"
-getVarExpr For{} = error "For cycle has multiple varExpr, please use getVarExprsFor"
+getVarExpr For{} = error "For loop has multiple varExpr, please use getVarExprsFor"
 
 parseProgram :: Parser [LanguageLexem]
 parseProgram = between space eof parseLanguageLexems
@@ -260,7 +263,7 @@ forParser = do
 
 ---------------Fifth&Sixth&Seventh
 
-data CycleError = CounterNameAlreadyExists | NegativeCycleCount deriving (Show, Eq)
+data LoopError = CounterNameAlreadyExists deriving (Show, Eq)
 
 fromRight :: Either a b -> b
 fromRight (Right b) = b
@@ -271,7 +274,9 @@ printConsole x = do
     let xExpr = getVarExpr x
     stateEnv <- get
     let xVal = runReader (evaluate xExpr) (Environment $ stateDict stateEnv)
-    liftIO $ putStrLn $ "< value for expression " ++ show xExpr ++ " is " ++ show xVal
+    if isRight xVal 
+        then liftIO $ putStrLn $ "< value for expression " ++ show xExpr ++ " is " ++ show xVal
+        else return ()
     return $ either Just (const Nothing) xVal
 
 readConsole :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
@@ -299,16 +304,17 @@ evaluateVarExprInternal x = do
         Right val -> if isDeclare x then declare xName val else update xName val
 
 runBody :: (MonadState StateEnvironment m, MonadIO m) => VarName -> Integer -> Integer -> [LanguageLexem] -> m (Maybe ParsingError)
-runBody counter counterVal n body = do
+runBody counter curCounterVal stopCounterVal body = do
     stateEnv <- get
     let dictProgram = stateDict stateEnv
-    if n >= 0 
+    if stopCounterVal - curCounterVal > 0 
         then do
-            let count = fromIntegral n
-            let lexems = concat $ replicate count (body ++ [VarExpr (Update counter (Add (Var counter) (Lit 1)))])
-            bodyAns <- runStateT (runProgram lexems) (StateEnvironment $ Map.insert counter counterVal $ stateDict stateEnv)
-            state (\_ -> (fst bodyAns, StateEnvironment $ Map.intersection (stateDict $ snd bodyAns) dictProgram))
-        else return $ Just $ ForError NegativeCycleCount
+            bodyAns <- runStateT (runProgram body) (StateEnvironment $ Map.insert counter curCounterVal $ stateDict stateEnv)
+            modify (\_ -> StateEnvironment $ Map.intersection (stateDict $ snd bodyAns) dictProgram)
+            case fst bodyAns of
+                Just err -> return $ Just err
+                Nothing -> runBody counter (curCounterVal + 1) stopCounterVal body
+        else return Nothing
 
 sub21 :: (Either ParsingError Integer) -> (Either ParsingError Integer) -> (Either ParsingError Integer)
 sub21 x y = do
@@ -317,7 +323,7 @@ sub21 x y = do
     return (yVal - xVal)
 
 runFor :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
-runFor (VarExpr _) = error "runFor function should be used only for For cycle"
+runFor (VarExpr _) = error "runFor function should be used only for For loop"
 runFor (For varName aExpr1 aExpr2 body) = do
     stateEnv <- get
     let dictProgram = stateDict stateEnv
@@ -329,7 +335,7 @@ runFor (For varName aExpr1 aExpr2 body) = do
             let valExpr = sub21 fstVal sndVal
             case valExpr of
                 Left err  -> return $ Just err
-                Right val -> runBody varName (fromRight fstVal) val body
+                Right _ -> runBody varName (fromRight fstVal) (fromRight sndVal) body
 
 
 evaluateVarExpr' :: (MonadState StateEnvironment m, MonadIO m) => LanguageLexem -> m (Maybe ParsingError)
@@ -341,18 +347,24 @@ runProgram (x:xs) = do
     ans <- if isFor x
         then runFor x
         else evaluateVarExpr' x
-    if not $ null xs && isNothing ans
-        then runProgram xs
-        else do
-            liftIO $ print ans
-            return ans
+    if null xs || isJust ans
+        then return ans
+        else runProgram xs
 
 main :: IO ()
 main = do
-    s <- readFile "fact.txt"
-    let parsed = parse parseProgram "fact.txt" s
-    case parsed of
-        Left err -> print err
-        Right exprs -> do
-            ans <- execStateT (runProgram exprs) (StateEnvironment Map.empty)
-            print ans
+    args <- getArgs
+    case args of 
+        [file] -> do
+            s <- readFile file
+            let parsed = parse parseProgram "fact.txt" s
+            case parsed of
+                Left err -> print err
+                Right exprs -> do
+                    ansans <- runStateT (runProgram exprs) (StateEnvironment Map.empty)
+                    case fst $ ansans of 
+                        Just err -> print err 
+                        Nothing -> do 
+                            putStrLn "Program was succesfully run"
+                            print $ snd ansans
+        _ -> putStrLn "Wrong args"
