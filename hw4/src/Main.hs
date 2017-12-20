@@ -1,4 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 
 module Main where
 
@@ -8,15 +11,17 @@ $(showText' ''MyData)
 $(showText' ''MyNewType)
 $(showText' ''D)
 $(showText' ''A)
+$(showText' ''MyType)
 -- $(showTextInstance ''D)
 
 
 
 main = do
-    print $ MyNewType "123"
-    print $ MyData "123" 123
-    print $ B
-    print $ C
-    print $ K 123
-    print $ L 123
+    print $ showText $ MyNewType "123"
+    print $ showText $ MyData "123" 123
+    print $ showText $ B
+    print $ showText $ C
+    print $ showText $ K 123
+    print $ showText $ L 123
+    print $ showText $ ("abc" :: MyType)
     -- print $ showText $ K 123
