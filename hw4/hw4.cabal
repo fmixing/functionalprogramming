@@ -18,7 +18,7 @@ tested-with:         GHC == 8.0.1
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Main
+  exposed-modules:     Lib4
   ghc-options:         -Wall, -XTemplateHaskell
   build-depends:       base >= 4.9 && < 5, 
                        random >= 1.1, 
@@ -28,7 +28,11 @@ library
                        MissingH,
                        megaparsec,
                        text,
-                       template-haskell
+                       template-haskell,
+                       directory,
+                       lens,
+                       filepath,
+                       comonad
   default-language:    Haskell2010
 
 Test-Suite spec
