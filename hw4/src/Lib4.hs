@@ -17,7 +17,8 @@
 
 module Lib4
         (
-          choseByIndices
+            choseByIndices
+          , choseByIndices'
           , MyData (..)
           , MyType
           , A (..)
@@ -59,9 +60,9 @@ module Lib4
           , travis
         ) where
 
-import           Data.List                  (filter, find, intercalate)
-import           Language.Haskell.TH        (Exp, Q, conT, lamE, mkName, reify, runIO,
-                                             tupE, tupP, varE, varP)
+import           Data.List                  (find, intercalate)
+import           Language.Haskell.TH        (Exp, Q, conT, lamE, mkName, reify,
+                                             tupE, tupP, varE, varP, newName, conP, wildP)
 import           Language.Haskell.TH.Syntax (Dec (..), Info (..), Name)
 -- import Control.Monad (replicateM)
 import           Control.Comonad            (Comonad, duplicate, extend, extract, (=>>))
@@ -78,17 +79,14 @@ import qualified Data.Text.IO               as TextIO (getLine, putStr, putStrLn
 import           Debug.Trace                (trace)
 import           System.Directory           (doesDirectoryExist, doesFileExist,
                                              listDirectory)
-import           System.FilePath            (dropFileName, hasExtension, replaceExtension,
+import           System.FilePath            (dropFileName, replaceExtension,
                                              takeFileName, (</>))
 -- import qualified       Control.Comonad      (Tree)
 import           Control.Comonad.Traced     (Traced, runTraced, traced)
-import           Control.Monad.Reader       (MonadReader, ask, runReaderT)
+import           Control.Monad.Reader       (MonadReader, ask, runReaderT, replicateM)
 import           Control.Monad.State        (MonadIO, MonadState, evalStateT, execStateT,
                                              get, modify, runStateT)
-import           Data.Monoid                (Any (..), Endo, Sum, appEndo, getAny, getSum)
-import           Data.Traversable           (traverse)
-import           Text.Read                  (readMaybe)
--- import           Data.Tree                  (Tree (..))
+import           Data.Monoid                (Endo, Sum, appEndo, getSum)
 
 choseByIndices :: Int -> [Int] -> Q Exp
 choseByIndices n indices = do
@@ -96,6 +94,17 @@ choseByIndices n indices = do
     let namesIndicedAll = map (\x -> "x" ++ show x) (take n [0..])
     lamE [tupP $ map (varP . mkName) namesIndicedAll] (tupE $ map (varE . mkName) namesIndiced)
 
+tuple :: Int -> Q Exp
+tuple n = do
+    ns <- replicateM n (newName "x")
+    lamE [foldr (\x y -> conP '(:) [varP x,y]) wildP ns] (tupE $ map varE ns)
+
+choseByIndices' :: [Int] -> Q Exp
+choseByIndices' indices = do
+    let x = mkName "x"
+    let size = length indices
+    lamE [varP x] [| $(tuple size) $ map ((($(varE x)) ^.. each) !!) indices|]
+    
 -----------------
 
 newtype MyNewType = MyNewType { zzz :: String } deriving (Show)
