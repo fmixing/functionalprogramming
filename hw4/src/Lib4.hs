@@ -1,19 +1,21 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveLift #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE Rank2Types                #-}
-{-# LANGUAGE TupleSections                #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveLift            #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE Rank2Types            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE Unsafe                #-}
 
 
-module Lib4 
+
+module Lib4
         (
           choseByIndices
           , MyData (..)
@@ -51,29 +53,42 @@ module Lib4
           , getAllNames
           , deleteDir
           , walker
+          , buildProject
+          , github
+          , benchs
+          , travis
         ) where
 
-import Language.Haskell.TH (Exp, Q, lamE, tupE, varE, mkName, varP, tupP, reify, runIO, conT)
-import Language.Haskell.TH.Syntax (Name, Dec (..), Info (..))
-import Data.List (intercalate, find, filter)
+import           Data.List                  (filter, find, intercalate)
+import           Language.Haskell.TH        (Exp, Q, conT, lamE, mkName, reify, runIO,
+                                             tupE, tupP, varE, varP)
+import           Language.Haskell.TH.Syntax (Dec (..), Info (..), Name)
 -- import Control.Monad (replicateM)
-import           Data.Functor.Identity      (Identity (..), runIdentity)
-import           Data.Functor.Const         (Const (..), getConst)
-import           Data.Text                  (Text, pack)
-import           Debug.Trace                (trace)
-import           System.Directory           (listDirectory, doesFileExist, doesDirectoryExist)
-import           Control.Lens               (makeLenses, makePrisms, (^.), (.~), (%~), (&), (^?), Traversal', 
-                                            _Just, preview, review, traversed, has, filtered, folded, (^..), 
-                                            toListOf, folding, each, traverse, Traversal, _head)
-import           System.FilePath            (takeFileName, (</>), replaceExtension, hasExtension, dropFileName)
+import           Control.Comonad            (Comonad, duplicate, extend, extract, (=>>))
+import           Control.Lens               (Traversal, Traversal', each, filtered,
+                                             folded, folding, has, makeLenses, makePrisms,
+                                             preview, review, toListOf, traverse,
+                                             traversed, (%~), (&), (.~), (^.), (^..),
+                                             (^?), _Just, _head)
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Comonad            (Comonad, extract, duplicate, extend)
-import           Control.Comonad.Traced     (Traced, runTraced)
-import           Data.Traversable           (traverse)
+import           Data.Functor.Const         (Const (..), getConst)
+import           Data.Functor.Identity      (Identity (..), runIdentity)
+import           Data.Text                  (Text, append, pack, unpack)
+import qualified Data.Text.IO               as TextIO (getLine, putStr, putStrLn)
+import           Debug.Trace                (trace)
+import           System.Directory           (doesDirectoryExist, doesFileExist,
+                                             listDirectory)
+import           System.FilePath            (dropFileName, hasExtension, replaceExtension,
+                                             takeFileName, (</>))
+-- import qualified       Control.Comonad      (Tree)
+import           Control.Comonad.Traced     (Traced, runTraced, traced)
+import           Control.Monad.Reader       (MonadReader, ask, runReaderT)
 import           Control.Monad.State        (MonadIO, MonadState, evalStateT, execStateT,
-                                            get, modify, runStateT)
+                                             get, modify, runStateT)
+import           Data.Monoid                (Any (..), Endo, Sum, appEndo, getAny, getSum)
+import           Data.Traversable           (traverse)
 import           Text.Read                  (readMaybe)
-import           Data.Monoid                (Endo, appEndo, Sum, getSum)
+-- import           Data.Tree                  (Tree (..))
 
 choseByIndices :: Int -> [Int] -> Q Exp
 choseByIndices n indices = do
@@ -97,30 +112,29 @@ data D = K { getInt :: Int } | L { getInt1 :: Int } deriving (Show)
 
 --- TyConI (DataD [] Lib4.A [] Nothing [NormalC Lib4.B [],NormalC Lib4.C []] [])
 --- TyConI (NewtypeD [] Lib4.MyNewType [] Nothing (RecC Lib4.MyNewType [(Lib4.zzz,Bang NoSourceUnpackedness NoSourceStrictness,ConT GHC.Base.String)]) [])
---- TyConI (DataD [] Lib4.MyData [] Nothing 
+--- TyConI (DataD [] Lib4.MyData [] Nothing
     -- [RecC Lib4.MyData [(Lib4.foo,Bang NoSourceUnpackedness NoSourceStrictness,ConT GHC.Base.String),
                       --  (Lib4.bar,Bang NoSourceUnpackedness NoSourceStrictness,ConT GHC.Types.Int)]] [])
 --- TyConI (TySynD Lib4.MyType [] (ConT GHC.Base.String))
 --- $(reify ''Single >>= runIO . print >> varE $ mkName "x" )
 --- $(reify ''MyData >>= runIO . print >> (varE $ mkName "x") )
 
-class ShowText a where 
+class ShowText a where
     showText :: a -> Text
 
 deriveShow :: Name -> Q [Dec]
-deriveShow t = do
-    [d| instance ShowText $(conT t) where
-            showText x = pack (show x)
-        |]
+deriveShow t = [d| instance ShowText $(conT t) where
+                    showText x = pack (show x)
+                |]
 
 showText' :: Name -> Q [Dec]
 showText' name = do
     info <- reify name
-    case info of 
-        (TyConI (NewtypeD _ _ _ _ _ _)) -> deriveShow name       
-        (TyConI (DataD _ _ _ _ _ _)) -> deriveShow name
-        TyConI (TySynD _ _ _) -> deriveShow name
-        _ -> error "Type should be newtype or data"
+    case info of
+        (TyConI NewtypeD{}) -> deriveShow name
+        (TyConI DataD{})    -> deriveShow name
+        TyConI TySynD{}     -> deriveShow name
+        _                   -> error "Type should be newtype or data"
 
 ----------------------------
 
@@ -158,7 +172,7 @@ choosing :: MyLens s1 t1 a b -- (a -> f b) -> s1 -> f t1
          -> MyLens (Either s1 s2) (Either t1 t2) a b -- (a -> f b) -> Either s1 s2 -> f (Either t1 t2)
 choosing l1 l2 f obj = case obj of
                             --  o :: s1
-                            Left o -> Left <$> l1 f o
+                            Left o  -> Left <$> l1 f o
                             --  o :: s2
                             Right o -> Right <$> l2 f o
 
@@ -175,8 +189,8 @@ choosing l1 l2 f obj = case obj of
 
 ------------------------------
 
-data FS 
-    = Dir 
+data FS
+    = Dir
           { _name     :: FilePath  -- название папки, не полный путь
           , _contents :: [FS]
           }
@@ -192,19 +206,19 @@ getDir :: FilePath -> IO FS
 getDir path = do
     x <- doesFileExist path
     y <- doesDirectoryExist path
-    if x 
+    if x
         then return $ File $ takeFileName path
-        else if y 
+        else if y
             then do
                 content <- listDirectory path
                 contentFS <- mapM (getDir . (</>) path) content
-                return $ Dir (takeFileName path) $ contentFS
+                return $ Dir (takeFileName path) contentFS
             else error "Path is neither file path nor directory path"
 
---file = File {_name = ".DS_Store"}
+--file = z
 --dir <- getDir "/Users/alice/nicetestdir"
 
---1            
+--1
 showDirContent :: FS -> [FS]
 showDirContent dir = dir ^. contents
 
@@ -223,16 +237,16 @@ setName fs = fs & name .~ "/"
 
 --5
 changeName :: FS -> FilePath -> FS
-changeName fs fp = (%~) name (\n -> n ++ fp) fs
+changeName fs fp = (%~) name (++ fp) fs
 
 --6
 findFstDir :: FS -> Maybe FilePath
-findFstDir fs = (%~) _Just (\x -> x ^. name) $ find (\x -> has _Dir x) (fs ^. contents ^.. folded)
+findFstDir fs = (%~) _Just (^. name) $ find (has _Dir) (fs ^. contents ^.. folded)
 
 --7
 getFilesFromDir :: FS -> Maybe [FilePath]
 -- getFileFromDir dir = dir ^. contents ^.. folded . filtered (\ x -> has _File x) . name
-getFilesFromDir dir = (%~) _Just (\(_, cont) -> cont ^.. folded . filtered (\x -> has _File x) . name) (dir ^? _Dir)
+getFilesFromDir dir = (%~) _Just (\(_, cont) -> cont ^.. folded . filtered (has _File) . name) (dir ^? _Dir)
 
 
 -- type Traversal s t a b = forall f. Applicative f => (a -> f b) -> s -> f t
@@ -250,21 +264,21 @@ file :: FilePath -> Traversal' FS FilePath
 file filename = contents . traversed . filtered (\x -> has _File x && x ^. name == filename) . name
 
 changeFileNames :: FS -> FilePath -> FS
-changeFileNames fs filename = (contents . traversed . filtered (\x -> has _File x) . name %~ (\_ -> filename)) fs
+changeFileNames fs filename = (contents . traversed . filtered (has _File) . name %~ (const filename)) fs
 
 changeFileExtensions :: FS -> FilePath -> FS
-changeFileExtensions fs extension = 
-    (contents . traversed . filtered (\x -> has _File x) . name %~ (\filename -> replaceExtension filename extension)) fs
+changeFileExtensions fs extension =
+    (contents . traversed . filtered (has _File) . name %~ (`replaceExtension` extension)) fs
 
 -- (dir ^.. cd "beautifuldir") >>= getAllNames
 getAllNames :: FS -> [FilePath]
-getAllNames fs = let fileNames = fs ^.. contents . traversed . filtered (\x -> has _File x) . name
-                     dirs = fs ^.. contents . traversed . filtered (\x -> has _Dir x) 
+getAllNames fs = let fileNames = fs ^.. contents . traversed . filtered (has _File) . name
+                     dirs = fs ^.. contents . traversed . filtered (has _Dir)
                  in (fs ^. name) : (fileNames ++ (dirs >>= getAllNames))
-                    
+
 deleteDir :: FilePath -> FS -> FS
-deleteDir filename fs = fs & contents .~ 
-    fs ^.. contents . traversed . filtered (\x -> not $ has _Dir x && x ^. name == filename && ((length $ x ^. contents) == 1))
+deleteDir filename fs = fs & contents .~
+    fs ^.. contents . traversed . filtered (\x -> not $ has _Dir x && x ^. name == filename && ((==) 1 $ length $ x ^. contents))
 
 
 data StateEnvironment = StateEnvironment { _fs :: [FS], _currPath :: FilePath, _fd :: [(Int, Int)] } deriving (Show, Eq)
@@ -273,37 +287,36 @@ data StateEnvironment = StateEnvironment { _fs :: [FS], _currPath :: FilePath, _
 
 makeLenses ''StateEnvironment
 
-printInfo :: (MonadState StateEnvironment m, MonadIO m) => Int -> Int -> m ()
+printInfo :: (MonadReader RootPath m, MonadState StateEnvironment m, MonadIO m) => Int -> Int -> m ()
 printInfo filesInDir dirsInDir = do
     stateEnv <- get
-    let path = _currPath $ stateEnv
+    root <- ask
+    let path = stateEnv ^. currPath
 
-    liftIO $ putStrLn $ "You in " ++ path
-    liftIO $ putStrLn $ "Files from root " ++ path ++ ": " ++  show filesInDir
-    liftIO $ putStrLn $ "Directories from " ++ path ++ ": " ++  show dirsInDir
+    liftIO $ putStrLn $ "You're in " ++ path
+    liftIO $ putStrLn $ "Files from root " ++ root ++ ": " ++  show filesInDir
+    liftIO $ putStrLn $ "Directories from " ++ root ++ ": " ++  show dirsInDir
     liftIO $ putStr "> "
 
 getCommand :: String -> [String]
 getCommand command = let com = words command in
-    if (==) 1 $ length com 
+    if (==) 1 $ length com
         then com
         else let commandName = head com
-                 commandArgs = readMaybe $ unwords $ drop 1 com
-             in case commandArgs of 
-                Just arg -> [commandName, arg]
-                Nothing -> [commandName]
+                 commandArgs = dropWhile (== ' ') $ drop (length commandName) command
+             in [commandName, commandArgs]
 
 
-walkerImpl :: (MonadState StateEnvironment m, MonadIO m) => m ()
+type RootPath = FilePath
+
+walkerImpl :: (MonadReader RootPath m, MonadState StateEnvironment m, MonadIO m) => m ()
 walkerImpl = do
     stateEnv <- get
-    let fsOnPath = _fs stateEnv
-    let fdOnPath = _fd stateEnv
 
-    let currFS = head fsOnPath
-    let (files, dirs) = head fdOnPath
-    let filesOnPath = (+) files $ length $ (currFS ^.. contents . traversed . filtered (\x -> has _File x))
-    let dirsOnPath = (+) dirs $ length $ (currFS ^.. contents . traversed . filtered (\x -> has _Dir x))
+    let currFS = head $ stateEnv ^. fs
+    let (files, dirs) = head $ stateEnv ^. fd
+    let filesOnPath = (+) files $ length (currFS ^.. contents . traversed . filtered (has _File))
+    let dirsOnPath = (+) dirs $ length (currFS ^.. contents . traversed . filtered (has _Dir))
 
     printInfo filesOnPath dirsOnPath
     command <- liftIO getLine
@@ -315,16 +328,16 @@ walkerImpl = do
             let maybeDirToGo = currFS ^? cd dirName
             case maybeDirToGo of
                 Just dirToGo -> do
-                    modify (\se -> (%~) fs (dirToGo :) se)
-                    modify (\se -> (%~) currPath (</> dirName) se)
-                    modify (\se -> (%~) fd ((filesOnPath,dirsOnPath) :) se)
+                    modify ((%~) fs (dirToGo :))
+                    modify ((%~) currPath (</> dirName))
+                    modify ((%~) fd ((filesOnPath,dirsOnPath) :))
                 Nothing -> liftIO $ putStr "Unknown directory, please try again\n"
-        ["up"] -> if (==) 1 $ length fsOnPath
-                  then liftIO $ putStr "You are trying to leave initial directory which is not permitted\n"
+        ["up"] -> if (==) 1 $ length $ stateEnv ^. fs
+                  then liftIO $ putStr "You are trying to leave an initial directory which is not permitted\n"
                   else do
-                    modify (\se -> (%~) fs (drop 1) se)
-                    modify (\se -> (%~) currPath dropFileName se)
-                    modify (\se -> (%~) fd (drop 1) se)
+                    modify ((%~) fs (drop 1))
+                    modify ((%~) currPath dropFileName)
+                    modify ((%~) fd (drop 1))
         ["ls"] -> do
             let lsInDir = currFS ^.. ls
             liftIO $ putStr $ intercalate "\n" lsInDir ++ "\n"
@@ -335,7 +348,7 @@ walkerImpl = do
 walker :: FilePath -> IO ()
 walker fp = do
     dir <- getDir fp
-    runStateT (walkerImpl) (StateEnvironment [dir] fp [(0, 0)])
+    runReaderT (runStateT walkerImpl (StateEnvironment [dir] fp [(0, 0)])) fp
     return ()
 
 -----------------------------------------------
@@ -344,7 +357,7 @@ class Monoid e => MonoidAction s e where
 --  e - monoid, s - element from X
     act :: s -> e -> s
 
--- Действие моноида M на X : M x X -> X с операцией act(m, x) == m . x: 
+-- Действие моноида M на X : M x X -> X с операцией act(m, x) == m . x:
 -- 1. forall s, t in M, x in X: s . (t . x) = (s * t) . x где * - операция полугруппы
 -- 2. e - identity element in M, forall x in X: e . x = x
 
@@ -352,15 +365,15 @@ instance MonoidAction [a] [a] where
     act :: [a] -> [a] -> [a]
     act slist elist = slist `mappend` elist
 
-instance Monoid a => MonoidAction (Maybe a) (Maybe a) where 
-    act :: (Maybe a) -> (Maybe a) -> (Maybe a)
+instance Monoid a => MonoidAction (Maybe a) (Maybe a) where
+    act :: Maybe a -> Maybe a -> Maybe a
     act s e'@(Just _) = s `mappend` e'
-    act s Nothing = s
+    act s Nothing     = s
 
 -- Endo { appEndo :: a -> a }, морфизм объекта категории в себя
-    
-instance MonoidAction s (Endo s) where 
-    act :: s -> (Endo s) -> s
+
+instance MonoidAction s (Endo s) where
+    act :: s -> Endo s -> s
     act s endo = (appEndo endo) s
 
 -- А потом можно и что-нибудь чуть-чуть сложней, типа
@@ -369,12 +382,12 @@ instance MonoidAction s (Endo s) where
 
 data Foo = Foo { fooList :: [Int], fooAcc :: Sum Double, fooDescription :: Text }
 
-instance MonoidAction Foo [Int] where 
+instance MonoidAction Foo [Int] where
     act :: Foo -> [Int] -> Foo
     act foo' list = foo' { fooList = list `mappend` fooList foo' }
 
 instance MonoidAction Foo (Sum Double) where
-    act :: Foo -> (Sum Double) -> Foo
+    act :: Foo -> Sum Double -> Foo
     act foo' sum' = foo' { fooAcc = sum' `mappend` fooAcc foo' }
 
 
@@ -382,22 +395,22 @@ data Renew s e a = Renew (e -> a) s
 
 instance Functor (Renew s e) where
 --  fmap :: (a -> b) -> (e -> a) -> s -> (e -> b) -> s
-    fmap :: (a -> b) -> (Renew s e a) -> (Renew s e b)
+    fmap :: (a -> b) -> Renew s e a -> Renew s e b
     fmap f (Renew upd s) = Renew (f . upd) s
 
     -- act :: s -> e -> s
-instance MonoidAction s e => Comonad (Renew s e) where 
+instance MonoidAction s e => Comonad (Renew s e) where
 --  extract :: (e -> a) -> s -> a
-    extract :: (Renew s e a) -> a -- w a -> a
+    extract :: Renew s e a -> a -- w a -> a
     extract (Renew upd _) = upd mempty
 --  duplicate :: ((e -> a) -> s) -> ((e -> ((e -> a) -> s)) -> s)
-    duplicate :: (Renew s e a) -> Renew s e (Renew s e a) -- w a -> w (w a)
+    duplicate :: Renew s e a -> Renew s e (Renew s e a) -- w a -> w (w a)
     -- duplicate (Renew upd s) = Renew (\e -> Renew upd (act s e)) s -- WRONG
     duplicate (Renew upd s) = Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s -- RIGHT
 --  extend :: (w a -> b) -> w a -> w b
-    extend :: ((Renew s e a) -> b) -> (Renew s e a) -> (Renew s e b)  -- (w a -> b) -> w a -> w b
+    extend :: (Renew s e a -> b) -> Renew s e a -> Renew s e b  -- (w a -> b) -> w a -> w b
     extend func (Renew upd s) = Renew (\k -> func (Renew (\e' -> upd $ e' `mappend` k) s)) s -- fmap func (duplicate renew)
-    
+
 
 --WRONG
 -- extract . duplicate   renew   = id renew == extract (duplicate renew)
@@ -405,7 +418,7 @@ instance MonoidAction s e => Comonad (Renew s e) where
 
 -- RIGHT
 -- extract . duplicate   renew   = id renew == extract (duplicate renew)
--- extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) 
+-- extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s)
 -- = (\e -> Renew (\e' -> upd $ e' `mappend` e) s) mempty
 -- = Renew (\e' -> upd $ e' `mappend` mempty) s = Renew upd s
 
@@ -413,15 +426,15 @@ instance MonoidAction s e => Comonad (Renew s e) where
 --WRONG
 -- fmap extract . duplicate (Renew upd s) = id (Renew upd s) = fmap extract $ duplicate (Renew upd s)
 -- fmap extract (Renew (\e -> Renew upd (act s e)) s) = Renew (extract . (\e -> Renew upd (act s e))) s
--- = Renew (\e' -> extract . (\e -> Renew upd (act s e)) e') s 
+-- = Renew (\e' -> extract . (\e -> Renew upd (act s e)) e') s
 -- = Renew (\e' -> extract (Renew upd (act s e'))) s
 -- = Renew (\e' -> extract (Renew upd _)) s
 
 -- RIGHT
 -- fmap extract . duplicate (Renew upd s) = id (Renew upd s) = fmap extract $ duplicate (Renew upd s)
--- fmap extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s) 
+-- fmap extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s)
 -- = Renew (extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) s)) s
--- = Renew (\e'' -> extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) s) e'') s 
+-- = Renew (\e'' -> extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) s) e'') s
 -- = Renew (\e'' -> extract ((\e -> Renew (\e' -> upd $ e' `mappend` e) s) e'')) s
 -- = Renew (\e'' -> extract (Renew (\e' -> upd $ e' `mappend` e'') s)) s
 -- = Renew (\e'' -> (\mempty -> upd $ mempty `mappend` e'')) s
@@ -432,7 +445,7 @@ instance MonoidAction s e => Comonad (Renew s e) where
 -- duplicate . duplicate renew = fmap duplicate . duplicate
 -- duplicate (Renew (\e -> Renew upd (act s e)) s) = Renew (\e' -> Renew (\e -> Renew upd (act s e)) (act s e')) s
 
--- fmap duplicate (Renew (\e -> Renew upd (act s e)) s) 
+-- fmap duplicate (Renew (\e -> Renew upd (act s e)) s)
 -- = Renew (duplicate . (\e -> Renew upd (act s e))) s
 -- = Renew (\e' -> duplicate ((\e -> Renew upd (act s e)) e')) s
 -- = Renew (\e' -> duplicate (Renew upd (act s e'))) s
@@ -443,10 +456,10 @@ instance MonoidAction s e => Comonad (Renew s e) where
 -- duplicate . duplicate renew = fmap duplicate . duplicate
 -- duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s) =
 -- Renew (\e -> Renew (\e' -> (\k -> Renew (\k' -> upd $ k' `mappend` k) s) $ e' `mappend` e) s) s =
--- Renew (\e -> Renew (\e' -> (Renew (\k' -> upd $ k' `mappend` e' `mappend` e) s) s) s 
+-- Renew (\e -> Renew (\e' -> (Renew (\k' -> upd $ k' `mappend` e' `mappend` e) s) s) s
 
 -- duplicate . duplicate renew = fmap duplicate . duplicate
--- fmap duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s) 
+-- fmap duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s)
 -- = Renew (duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) s)) s
 -- = Renew (\k -> duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) s) k) s
 -- = Renew (\k -> duplicate ((\e -> Renew (\e' -> upd $ e' `mappend` e) s) k)) s
@@ -463,7 +476,7 @@ data ProjectSettings = ProjectSettings
      { settingsBenchs :: Bool  -- ^ enable benchmarks for project?
      , settingsGithub :: Bool  -- ^ set up github     for project?
      , settingsTravis :: Bool  -- ^ set up Travis CI  for project?
-     }
+     } deriving (Show)
 
 data Project = Project
      { projectName :: Text
@@ -472,7 +485,88 @@ data Project = Project
      , hasTravis   :: Bool
      } deriving (Show)
 
-type ProjectBuilder = ProjectSettings -> Project
+-- type ProjectBuilder = ProjectSettings -> Project -- Traced ProjectSettings Project
 
-buildProject :: Text -> ProjectBuilder
-buildProject text = undefined
+type ProjectBuilder' = Traced ProjectSettings Project
+-- extract :: Traced m a -> a
+-- extend :: (Traced m a -> b) -> Traced m a -> Traced m b
+
+defaultSettings :: ProjectSettings
+defaultSettings = ProjectSettings False False False
+
+instance Monoid ProjectSettings where
+    mempty = defaultSettings
+    s1 `mappend` s2 = ProjectSettings (settingsBenchs s1 || settingsBenchs s2)
+                                      (settingsGithub s1 || settingsGithub s2)
+                                      (settingsTravis s1 || settingsTravis s2)
+
+--        (ProjectSettings -> Project) -> Project
+github :: ProjectBuilder' -> Project
+github builder = runTraced builder (defaultSettings { settingsGithub = True })
+
+benchs :: ProjectBuilder' -> Project
+benchs builder = runTraced builder (defaultSettings { settingsBenchs = True })
+
+travis :: ProjectBuilder' -> Project
+travis builder = if hasGithub $ (runTraced builder) defaultSettings
+                 then runTraced builder (defaultSettings { settingsTravis = True })
+                 else runTraced builder defaultSettings
+
+mkDefProj :: Text -> ProjectSettings -> Project
+mkDefProj name' settings = Project name' (settingsBenchs settings) (settingsGithub settings) (settingsTravis settings)
+
+buildProject :: Text -> ProjectBuilder'
+buildProject text = traced (mkDefProj text)
+
+data Tree a = Node a [Tree a]
+
+instance Functor Tree where
+    fmap :: (a -> b) -> Tree a -> Tree b
+    fmap f (Node a childrens) = Node (f a) (childrens >>= (\child -> [fmap f child]))
+
+instance Comonad Tree where
+    extract :: Tree a -> a -- w a -> a
+    extract (Node a _) = a
+    duplicate :: Tree a -> Tree (Tree a) -- w a -> w (w a)
+    duplicate (Node a childrens) = Node (Node a childrens) (childrens >>= (\child -> [duplicate child]))
+    extend :: (Tree a -> b) -> Tree a -> Tree b -- (w a -> b) -> w a -> w b
+    extend func node = fmap func (duplicate node)
+
+-- extract . duplicate   tree   = id renew == extract (duplicate (Node a childrens))
+-- extract (Node (Node a childrens) (childrens >>= (\child -> [duplicate child])))
+-- =  (Node a childrens)
+
+-- fmap extract . duplicate (Node a childrens) = id (Node a childrens) = fmap extract $ duplicate (Node a childrens)
+-- fmap extract $ (Node (Node a childrens) (childrens >>= (\child -> [duplicate child])))
+-- = {Node (extract a) (childrens >>= (\child -> [fmap extract child]))}
+-- = (Node (extract (Node a childrens)) ((childrens >>= (\child -> [duplicate child])) >>= (\child' -> [fmap extract child']))
+-- = Node a ((childrens >>= (\child -> [duplicate child])) >>= (\child' -> [fmap extract child']))
+-- = Node a (childrens >>= (\x -> (\child -> [duplicate child]) x >>= (\child' -> [fmap extract child'])))
+-- = Node a ((childrens >>= (\child -> [duplicate child])) >>= (\child' -> [fmap extract child']))
+-- = Node a (childrens >>= (\x -> [duplicate x] >>= (\child' -> [fmap extract child']))) {[k] == return k, return a >>= f == f a}
+-- = Node a (childrens >>= (\x -> (\child' -> [fmap extract child']) duplicate x))
+-- = Node a (childrens >>= (\x -> [fmap extract (duplicate x)]))
+-- = Node a (childrens >>= (\x -> [fmap extract (duplicate x)]))
+
+-- duplicate . duplicate (Node a childrens) = fmap duplicate . duplicate (Node a childrens)
+
+-- duplicate (Node (Node a childrens) (childrens >>= (\child -> [duplicate child])))
+-- = Node ((Node (Node a childrens) (childrens >>= (\child -> [duplicate child]))))
+--     ((childrens >>= (\child -> [duplicate child])) >>= (\child -> [duplicate child]))
+
+---------------------------------------------------
+
+-- List a = Nil | Cons a (List a) ~ [a], List(a) = 1 / (1 - a) => [a] = 1 / (1 - a)
+-- Tree a = Node a [Tree a]
+-- Tree a = a * 1 / (1 - (Tree a))
+-- (Tree a)' = (a * 1 / (1 - (Tree a)))' = a' * 1 / (1 - (Tree a)) + a * (1 / (1 - (Tree a)))'
+-- (Tree a)' = 1 / (1 - (Tree a)) + a * Tree'(a) * (1 / (1 - (Tree a))) ^ 2
+-- (Tree a)' - Tree'(a) * a * (1 / (1 - (Tree a))) ^ 2 = 1 / (1 - (Tree a))
+-- (Tree a)' * (1 - a * (1 / (1 - (Tree a))) ^ 2) = 1 / (1 - (Tree a))
+-- (Tree a)' = 1 / (1 - (Tree a)) * 1 / (1 - a * (1 / (1 - (Tree a))) ^ 2)
+-- {1 / (1 - (Tree a)) == [Tree a]}
+-- {1 / (1 - a * (1 / (1 - (Tree a))) ^ 2) == [a * [Tree a] * [Tree a]]}
+-- (Tree a)' = [Tree a] * [a * [Tree a] * [Tree a]]
+
+data ListEntry  a = LE a [Tree a] [Tree a]
+data RoseTreeZipper a = RTZ a [Tree a] [ListEntry a]
