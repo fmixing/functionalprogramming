@@ -1,7 +1,7 @@
 resolver: lts-9.14
 
 packages:
-- hw3/
+- hw4/
 
 extra-deps: 
 - megaparsec-6.2.0

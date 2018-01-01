@@ -14,8 +14,6 @@ $(showText' ''A)
 $(showText' ''MyType)
 -- $(showTextInstance ''D)
 
-
-
 main = do
     print $ showText $ MyNewType "123"
     print $ showText $ MyData "123" 123

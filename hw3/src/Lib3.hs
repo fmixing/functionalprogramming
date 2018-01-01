@@ -72,13 +72,15 @@ getVarValue varName = do
     env <- ask
     let dictReader = dict env
     let val = Map.lookup varName dictReader
+    -- val <- asks (Map.lookup varName . dict)
+    -- asks (Map.lookup varName . dict) >>= \case
     case val of
         Nothing -> throwError $ ArithmError $ NameNotFound varName
         Just x  -> return x
 
 evaluateInternal :: (MonadReader Environment m, MonadError ParsingError m)
                  => Expr -> Expr -> (Const -> Const -> Const) -> m Const
-evaluateInternal x y func = do
+evaluateInternal x y func = do -- liftM2 func (evaluate x) (evaluate y)
     resx <- evaluate x
     resy <- evaluate y
     return (func resx resy)
@@ -86,7 +88,7 @@ evaluateInternal x y func = do
 evaluate :: (MonadReader Environment m, MonadError ParsingError m) => Expr -> m Const
 evaluate (Lit x) = return x
 evaluate (Var name) = getVarValue name
-evaluate (Neg x) = evaluateInternal (Lit 0) x (-)
+evaluate (Neg x) = evaluateInternal (Lit 0) x (-) -- fmap negate (evaluate x)
 evaluate (Add x y) = evaluateInternal x y (+)
 evaluate (Mul x y) = evaluateInternal x y (*)
 evaluate (Sub x y) = evaluateInternal x y (-)
@@ -188,7 +190,7 @@ update name value = do
     case Map.lookup name mapEnv of
         Nothing -> throwError $ VarError $ NameNotFoundState name
         Just _  -> modify (\_ -> StateEnvironment $ Map.insert name value mapEnv)
-
+-- fix дублирование
 
 ---------------Fourth
 
@@ -296,7 +298,7 @@ printConsole x = do
 readConsole :: (MonadState StateEnvironment m, MonadIO m, MonadError ParsingError m) => LanguageLexem -> m ()
 readConsole x = do
     let xName = getVarName x
-    liftIO $ putStrLn $ unpack $ "> please print value for variable " `append` getVarName x
+    liftIO $ putStrLn $ unpack $ "> please print value for variable " `append` getVarName x -- <>, Data.Text.IO 
     xVal <- liftIO getLine
     stateEnv <- get
     let mapEnv = stateDict stateEnv

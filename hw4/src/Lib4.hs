@@ -338,6 +338,7 @@ walkerImpl = do
             case maybeDirToGo of
                 Just dirToGo -> do
                     modify ((%~) fs (dirToGo :))
+                    -- fs %= (dirToGo :)
                     modify ((%~) currPath (</> dirName))
                     modify ((%~) fd ((filesOnPath,dirsOnPath) :))
                 Nothing -> liftIO $ putStr "Unknown directory, please try again\n"
@@ -415,10 +416,10 @@ instance MonoidAction s e => Comonad (Renew s e) where
 --  duplicate :: ((e -> a) -> s) -> ((e -> ((e -> a) -> s)) -> s)
     duplicate :: Renew s e a -> Renew s e (Renew s e a) -- w a -> w (w a)
     -- duplicate (Renew upd s) = Renew (\e -> Renew upd (act s e)) s -- WRONG
-    duplicate (Renew upd s) = Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s -- RIGHT
+    duplicate (Renew upd s) = Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) s -- RIGHT Update
 --  extend :: (w a -> b) -> w a -> w b
     extend :: (Renew s e a -> b) -> Renew s e a -> Renew s e b  -- (w a -> b) -> w a -> w b
-    extend func (Renew upd s) = Renew (\k -> func (Renew (\e' -> upd $ e' `mappend` k) s)) s -- fmap func (duplicate renew)
+    extend func (Renew upd s) = Renew (\k -> func (Renew (\e' -> upd $ e' `mappend` k) (act s k))) s -- fmap func (duplicate renew)
 
 
 --WRONG
@@ -427,9 +428,9 @@ instance MonoidAction s e => Comonad (Renew s e) where
 
 -- RIGHT
 -- extract . duplicate   renew   = id renew == extract (duplicate renew)
--- extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s)
--- = (\e -> Renew (\e' -> upd $ e' `mappend` e) s) mempty
--- = Renew (\e' -> upd $ e' `mappend` mempty) s = Renew upd s
+-- extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e))
+-- = (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) mempty
+-- = Renew (\e' -> upd $ e' `mappend` mempty) (act s mempty) = Renew upd s
 
 
 --WRONG
@@ -441,12 +442,12 @@ instance MonoidAction s e => Comonad (Renew s e) where
 
 -- RIGHT
 -- fmap extract . duplicate (Renew upd s) = id (Renew upd s) = fmap extract $ duplicate (Renew upd s)
--- fmap extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s)
--- = Renew (extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) s)) s
--- = Renew (\e'' -> extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) s) e'') s
--- = Renew (\e'' -> extract ((\e -> Renew (\e' -> upd $ e' `mappend` e) s) e'')) s
--- = Renew (\e'' -> extract (Renew (\e' -> upd $ e' `mappend` e'') s)) s
--- = Renew (\e'' -> (\mempty -> upd $ mempty `mappend` e'')) s
+-- fmap extract (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) s)
+-- = Renew (extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e))) s
+-- = Renew (\e'' -> extract . (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) e'') s
+-- = Renew (\e'' -> extract ((\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) e'')) s
+-- = Renew (\e'' -> extract (Renew (\e' -> upd $ e' `mappend` e'') (act s e''))) s
+-- = Renew (\e'' -> (upd $ mempty `mappend` e'')) s
 -- = Renew (\e'' -> upd e'') s = Renew upd s
 
 
@@ -463,19 +464,20 @@ instance MonoidAction s e => Comonad (Renew s e) where
 
 -- RIGHT
 -- duplicate . duplicate renew = fmap duplicate . duplicate
--- duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s) =
--- Renew (\e -> Renew (\e' -> (\k -> Renew (\k' -> upd $ k' `mappend` k) s) $ e' `mappend` e) s) s =
--- Renew (\e -> Renew (\e' -> (Renew (\k' -> upd $ k' `mappend` e' `mappend` e) s) s) s
+-- duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) s) =
+-- Renew (\e -> Renew (\e' -> (\k -> Renew (\k' -> upd $ k' `mappend` k) (act s k)) $ e' `mappend` e) (act s e)) s =
+-- Renew (\e -> Renew (\e' -> (Renew (\k' -> upd $ k' `mappend` e' `mappend` e) (act s (e' `mappend` e))) (act s e)) s
 
 -- duplicate . duplicate renew = fmap duplicate . duplicate
--- fmap duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) s) s)
--- = Renew (duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) s)) s
--- = Renew (\k -> duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) s) k) s
--- = Renew (\k -> duplicate ((\e -> Renew (\e' -> upd $ e' `mappend` e) s) k)) s
--- = Renew (\k -> duplicate (Renew (\e' -> upd $ e' `mappend` k) s)) s
--- = Renew (\k -> Renew (\e -> Renew (\e' -> (\k' -> upd $ k' `mappend` k) $ e' `mappend` e) s) s) s
--- = Renew (\k -> Renew (\e -> Renew (\e' -> upd $ e' `mappend` e `mappend` k) s) s) s
--- = Renew (\e -> Renew (\e' -> Renew (\k' -> upd $ k' `mappend` e' `mappend` e) s) s) s
+-- fmap duplicate (Renew (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) s)
+-- = Renew (duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e))) s
+-- = Renew (\k -> duplicate . (\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) k) s
+-- = Renew (\k -> duplicate ((\e -> Renew (\e' -> upd $ e' `mappend` e) (act s e)) k)) s
+-- = Renew (\k -> duplicate (Renew (\e' -> upd $ e' `mappend` k) (act s k))) s
+-- = Renew (\k -> Renew (\e -> Renew (\e' -> (\k' -> upd $ k' `mappend` k) $ e' `mappend` e) (act (act s k) e)) (act s k)) s
+-- = Renew (\k -> Renew (\e -> Renew (\e' -> upd $ e' `mappend` e `mappend` k) (act (act s k) e)) (act s k)) s
+-- = Renew (\k -> Renew (\e -> Renew (\e' -> upd $ e' `mappend` e `mappend` k) (act s (e `mappend` k)) (act s k)) s
+-- = Renew (\e -> Renew (\e' -> Renew (\k' -> upd $ k' `mappend` e' `mappend` e) (act s (e' `mappend` e))) (act s e)) s
 
 ---------------------------
 
@@ -531,8 +533,8 @@ data Tree a = Node a [Tree a]
 
 instance Functor Tree where
     fmap :: (a -> b) -> Tree a -> Tree b
-    fmap f (Node a childrens) = Node (f a) (childrens >>= (\child -> [fmap f child]))
-
+    fmap f (Node a childrens) = Node (f a) (childrens >>= pure . fmap f) -- fmap (fmap f) childrens
+ 
 instance Comonad Tree where
     extract :: Tree a -> a -- w a -> a
     extract (Node a _) = a

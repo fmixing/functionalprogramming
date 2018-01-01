@@ -13,7 +13,10 @@ import           Lib4
 
 x = (1, 2)
 k = (1, (2, 7))
--- _11 = (lens fst (\(x1, x2) y -> (y, x2)))
+
+_11 :: MyLens' (a, b) a
+_11 = (lens fst (\(x1, x2) y -> (y, x2)))
+
 -- _22 = (lens snd (\(x1, x2) y -> (x1, y)))
 -- newL = choosing _1 _2
 
@@ -40,10 +43,10 @@ spec = do
             over _2 (\y -> set _2 3 y) k `shouldBe` (1, (2, 3))
     describe "Advanced Pair Lens" $ do
         it "view test" $ do
-            view (lens fst (\(x1, x2) y -> (y, x2))) x `shouldBe` 1
+            view _11 x `shouldBe` 1
             view (lens snd (\(x1, x2) y -> (x1, y))) x `shouldBe` 2
         it "set test" $ do
-            set (lens fst (\(x1, x2) y -> (y, x2))) 3 x `shouldBe` (3, 2)
+            set _11 3 x `shouldBe` (3, 2)
             set (lens snd (\(x1, x2) y -> (x1, y))) 3 x `shouldBe` (1, 3)
         it "over test" $ do
             over (lens fst (\(x1, x2) y -> (y, x2))) (\y -> y * 5) x `shouldBe` (5, 2)
